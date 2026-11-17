@@ -6,9 +6,9 @@ services:
       - 'POSTGRES_PASSWORD=voip@123'
       - 'POSTGRES_USER=root'
     ports:
-      - '25432'
+      - '127.0.0.1:25432:5432'
 
   redis:
     image: 'redis:latest'
     ports:
-      - '26379'
+      - '127.0.0.1:26379:6379'

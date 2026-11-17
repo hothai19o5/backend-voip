@@ -1,0 +1,8 @@
+name: Alohub Local
+values:
+  - key: base_url
+    value: 'http://localhost:8080'
+    description: Local backend base URL
+  - key: access_token
+    value: ''
+    description: Automatically set after a successful login and cleared after a successful logout

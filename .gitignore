@@ -1,5 +1,11 @@
 HELP.md
 target/
+test-run.log
+.env
+.env.*
+!.env.example
+# Machine-specific FusionPBX certificates and truststores.
+/certs/
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/

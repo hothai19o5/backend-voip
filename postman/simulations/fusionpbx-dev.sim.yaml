@@ -1,0 +1,8 @@
+simulation: fusionpbx-dev
+routing: path
+mocks:
+  - name: FusionPBX REST API
+    routeKey: fusionpbx
+    origin:
+      - 10.155.199.136
+    path: postman/mocks/fusionpbx/config.yaml

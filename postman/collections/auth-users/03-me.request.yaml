@@ -1,0 +1,5 @@
+$kind: http-request
+name: Me
+method: GET
+url: '{{base_url}}/api/v1/users/me'
+order: 3000

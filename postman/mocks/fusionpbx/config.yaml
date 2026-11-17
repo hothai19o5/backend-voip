@@ -1,0 +1,12 @@
+version: 1
+name: FusionPBX REST API
+slug: fusionpbx
+protocol: http
+port: 14010
+origin:
+  - 10.155.199.136
+interceptRequests: true
+scenarios:
+  - name: default
+    path: ./default.js
+    default: true

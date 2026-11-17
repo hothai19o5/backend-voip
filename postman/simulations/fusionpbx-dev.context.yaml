@@ -1,0 +1,37 @@
+purpose:
+  stands_in_for: The three FusionPBX REST actions used by the backend, using a stateful local contract-derived mock.
+  unblocks: Run the actual backend and database without real FusionPBX credentials or creating real extensions.
+assumptions:
+  - id: api-contract
+    status: supported
+    claim: The inspected revision accepts POST JSON at rest.php, with Basic Auth, domain-details, extension-list and extension-create actions.
+    reason: README and the PHP action implementations define the request and response shapes used by the adapter.
+    verification: Read the upstream source on 2026-11-17. No authenticated request to the user's server has been performed.
+    source: https://github.com/AccelerateNetworks/fusionpbx-rest-api/tree/f32b7a9578e29484671b0e4ab956f7f9300ea1cc
+    updated_at: '2026-11-17'
+  - id: no-safe-create-retry
+    status: supported
+    claim: The inspected extension-create has no idempotency key or compensating delete action; a repeated occupied number fails.
+    reason: The source checks for an occupied extension and generates the SIP password inside the create action. The adapter must preserve ambiguous reservations without blind retry or adoption.
+    verification: On 2026-11-17, inspected extension-create.php and the action directory; Java HTTP integration tests and the actual packaged backend against this Postman simulation demonstrated one write and UNKNOWN state after a timeout following remote creation. Control state showed three total creates (two normal plus one ambiguous), and repeated registration/login did not increase it.
+    source: src/test/java/com/x/backendvoip/AuthUsersIntegrationTests.java; https://github.com/AccelerateNetworks/fusionpbx-rest-api/blob/f32b7a9578e29484671b0e4ab956f7f9300ea1cc/actions/extension-create.php
+    updated_at: '2026-11-17'
+  - id: caller-integration-scenarios
+    status: supported
+    claim: In the local scenarios run, the actual backend provisions accounts, enriches the directory with current remote mappings, limits SIP credentials to the caller and surfaces dependency failures.
+    reason: The executable JAR used real PostgreSQL and made real HTTP calls into the stateful simulation; assertions and persisted state matched the expected outcomes.
+    verification: On 2026-11-17 ran scripts/run-fusionpbx-verification.ps1 successfully. Logs show domain-details, extension-list and extension-create calls. SQL state retained two READY mappings and one UNKNOWN reservation after timeout. Also ran 34 Java HTTP integration tests successfully on H2 and PostgreSQL. This does not establish deployed-server behavior, SIP registration or media compatibility.
+    source: scripts/verify-fusionpbx.mjs; scripts/run-fusionpbx-verification.ps1; target/fusion-simulation.log; target/fusion-postgres-package.log
+    updated_at: '2026-11-17'
+  - id: deployed-authentication
+    status: unknown
+    claim: The deployed FusionPBX service rejects an incorrect secret for a valid key UUID.
+    reason: The inspected rest.php reverses password_verify arguments and rejects on true instead of false. The mock enforces intended Basic Auth rather than copying that insecure behavior. The deployed revision is unknown.
+    verification: Source inspected only; must verify the actual server and patch its verifier if affected. Owner mock search skipped because the CLI has no signed-in account; no workspace binding was changed.
+    source: https://github.com/AccelerateNetworks/fusionpbx-rest-api/blob/f32b7a9578e29484671b0e4ab956f7f9300ea1cc/rest.php
+    updated_at: '2026-11-17'
+fingerprints:
+  - id: initial-integration
+    date: '2026-11-17'
+    commit: 21103dce61bcd8a9ccf9ec30ce6778530e85e3c0 (working tree contains uncommitted integration changes)
+    cli: 1.74.0

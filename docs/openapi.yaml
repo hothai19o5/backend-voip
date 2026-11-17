@@ -1,0 +1,421 @@
+openapi: 3.0.3
+info:
+  title: Alohub Auth and Users API
+  version: 0.1.0
+  description: >-
+    Registration creates a USER and provisions its FusionPBX extension automatically.
+    Bearer JWTs use persisted revocable sessions. Account status is independent of
+    realtime presence. This spec is the interface source of truth; API.md explains
+    usage and the local Postman collection provides one editable request per endpoint.
+servers:
+  - url: http://localhost:8080
+security:
+  - bearerAuth: []
+tags:
+  - name: Auth
+    description: Registration and revocable bearer sessions
+  - name: Users
+    description: Own profile and public user directory
+  - name: SIP
+    description: Own calling connection configuration
+paths:
+  /api/v1/auth/register:
+    post:
+      tags: [Auth]
+      operationId: register
+      summary: Register a user account
+      description: >-
+        Trims identity fields, hashes the password and provisions a numeric extension
+        through FusionPBX. Returns success only after the mapping and encrypted SIP
+        password are persisted. A timed-out create keeps an UNKNOWN reservation and
+        is not retried automatically. Does not log in.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            example:
+              username: alice
+              email: alice@example.com
+              password: example-password
+              displayName: Alice
+      responses:
+        '201':
+          description: Account created with role USER, status ACTIVE and SIP provisioningStatus READY
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Username/email already exists or extension allocation conflict (USERNAME_TAKEN, EMAIL_TAKEN, ACCOUNT_CONFLICT, EXTENSION_CONFLICT)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '502':
+          $ref: '#/components/responses/TelephonyFailure'
+        '503':
+          $ref: '#/components/responses/TelephonyFailure'
+        '504':
+          $ref: '#/components/responses/TelephonyFailure'
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: Create a bearer session
+      description: >-
+        Username is trimmed and matched case-insensitively. Password is preserved
+        exactly. Legacy users without a SIP mapping are provisioned after successful
+        password verification. Pending/failed/unknown provisioning returns 503 without
+        issuing a session. Token lifetime defaults to 8 hours.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              username: alice
+              password: example-password
+      responses:
+        '200':
+          description: Bearer token and own profile; Cache-Control no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '502':
+          $ref: '#/components/responses/TelephonyFailure'
+        '503':
+          $ref: '#/components/responses/TelephonyFailure'
+        '504':
+          $ref: '#/components/responses/TelephonyFailure'
+        '409':
+          $ref: '#/components/responses/TelephonyFailure'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: INVALID_CREDENTIALS for wrong username/password or blocked account
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: Revoke the current bearer session
+      description: Other sessions remain active. Reusing this token, including another logout, returns 401.
+      responses:
+        '204':
+          description: Session revoked; empty response body
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/users/me:
+    get:
+      tags: [Users]
+      operationId: getCurrentUser
+      summary: Get the authenticated user profile
+      description: Resolves the configured PBX domain and reads extension-list to verify the caller's mapping.
+      responses:
+        '200':
+          description: Own profile including email
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '502':
+          $ref: '#/components/responses/TelephonyFailure'
+        '503':
+          $ref: '#/components/responses/TelephonyFailure'
+        '504':
+          $ref: '#/components/responses/TelephonyFailure'
+  /api/v1/users:
+    get:
+      tags: [Users]
+      operationId: listUsers
+      summary: Search other users without requiring a contact relationship
+      description: >-
+        Excludes caller; includes accounts with and without sessions and BLOCKED
+        accounts. Calls FusionPBX extension-list on every valid request and joins
+        mapped UUID and number to each app user. PBX-only extensions are not app/chat
+        identities. No presence or SIP registration is inferred. Ordered by username
+        then UUID. Email and credentials are never exposed. Dependency errors are
+        returned rather than presenting a local-only result as current.
+      parameters:
+        - name: q
+          in: query
+          description: Trimmed case-insensitive literal substring on username or displayName; percent and underscore are literal.
+          schema:
+            type: string
+            maxLength: 100
+            default: ''
+        - name: page
+          in: query
+          description: Zero-based page index; page multiplied by size must fit a signed 32-bit integer.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: size
+          in: query
+          description: Maximum entries per page
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Stable user page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '502':
+          $ref: '#/components/responses/TelephonyFailure'
+        '503':
+          $ref: '#/components/responses/TelephonyFailure'
+        '504':
+          $ref: '#/components/responses/TelephonyFailure'
+  /api/v1/sip/account:
+    get:
+      tags: [SIP]
+      operationId: getOwnSipAccount
+      summary: Get the caller's SIP connection credentials
+      description: >-
+        Verifies the mapped extension against FusionPBX before decrypting the SIP
+        password. Always scoped to the bearer subject. Never accepts a target user
+        ID or returns the administrative REST token. Cache-Control no-store.
+      responses:
+        '200':
+          description: Own SIP connection credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SipCredentials'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '502':
+          $ref: '#/components/responses/TelephonyFailure'
+        '503':
+          $ref: '#/components/responses/TelephonyFailure'
+        '504':
+          $ref: '#/components/responses/TelephonyFailure'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token returned by login, validated against its persisted session on every request
+  responses:
+    TelephonyFailure:
+      description: >-
+        Calling service error. Codes include TELEPHONY_NOT_CONFIGURED,
+        TELEPHONY_AUTH_FAILED, TELEPHONY_INVALID_RESPONSE, TELEPHONY_REJECTED,
+        TELEPHONY_UNAVAILABLE, TELEPHONY_TIMEOUT, PROVISIONING_PENDING and
+        EXTENSION_CONFLICT. No provider secrets or raw response bodies are exposed.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    BadRequest:
+      description: VALIDATION_ERROR (field errors) or INVALID_REQUEST (JSON, unknown fields, parameters)
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unauthorized:
+      description: UNAUTHORIZED - missing, invalid, expired, revoked token or blocked account
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: string
+            example: Bearer realm="alohub"
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [username, email, password, displayName]
+      properties:
+        username:
+          type: string
+          pattern: '^[A-Za-z0-9_.-]{3,32}$'
+          description: Trimmed before validation; stored lowercase
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 128
+          writeOnly: true
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 100
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          minLength: 1
+          maxLength: 32
+        password:
+          type: string
+          format: password
+          minLength: 1
+          maxLength: 128
+          writeOnly: true
+    UserProfile:
+      type: object
+      required: [id, username, email, displayName, role, status, createdAt, sip]
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        displayName:
+          type: string
+        role:
+          type: string
+          enum: [USER, ADMIN]
+        status:
+          type: string
+          enum: [ACTIVE, BLOCKED]
+        createdAt:
+          type: string
+          format: date-time
+        sip:
+          type: object
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/SipSummary'
+    UserSummary:
+      type: object
+      required: [id, username, displayName, status, sip]
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        displayName:
+          type: string
+        status:
+          type: string
+          enum: [ACTIVE, BLOCKED]
+        sip:
+          type: object
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/SipSummary'
+    SipSummary:
+      type: object
+      required: [extension, domain, provisioningStatus, extensionPresent]
+      properties:
+        extension:
+          type: string
+        domain:
+          type: string
+        provisioningStatus:
+          type: string
+          enum: [PROVISIONING, READY, FAILED, UNKNOWN]
+        extensionPresent:
+          type: boolean
+          nullable: true
+          description: Current PBX UUID and number match; null if not freshly checked. Not SIP online presence.
+    SipCredentials:
+      type: object
+      required: [extension, domain, serverIp, wssUrl, password]
+      properties:
+        extension:
+          type: string
+        domain:
+          type: string
+        serverIp:
+          type: string
+        wssUrl:
+          type: string
+          format: uri
+        password:
+          type: string
+          format: password
+    LoginResponse:
+      type: object
+      required: [accessToken, tokenType, expiresAt, user]
+      properties:
+        accessToken:
+          type: string
+        tokenType:
+          type: string
+          enum: [Bearer]
+        expiresAt:
+          type: string
+          format: date-time
+        user:
+          $ref: '#/components/schemas/UserProfile'
+    UserPage:
+      type: object
+      required: [content, page, size, totalElements, totalPages, hasNext]
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserSummary'
+        page:
+          type: integer
+        size:
+          type: integer
+        totalElements:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+        hasNext:
+          type: boolean
+    Problem:
+      type: object
+      required: [type, title, status, detail, instance, code]
+      properties:
+        type:
+          type: string
+          example: about:blank
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        code:
+          type: string
+        errors:
+          type: object
+          additionalProperties:
+            type: string
