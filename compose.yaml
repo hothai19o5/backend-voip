@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: 'postgres:latest'
+    environment:
+      - 'POSTGRES_DB=voip_db'
+      - 'POSTGRES_PASSWORD=voip@123'
+      - 'POSTGRES_USER=root'
+    ports:
+      - '25432'
+
+  redis:
+    image: 'redis:latest'
+    ports:
+      - '26379'
