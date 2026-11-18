@@ -16,7 +16,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -96,12 +98,12 @@ public class HistoryService {
                 input.body(), "received", time, sender.getDisplayName());
         var sent = history.save(new HistoryMessage(sender, id, from, peer, outgoing));
         history.save(new HistoryMessage(recipient, id, peer, from, incoming));
-        return HistoryEntry.from(sent);
+        return HistoryEntry.from(sent, recipientId);
     }
 
     private HistoryEntry retryDirect(HistoryMessage existing, String peer, String body) {
         if (!existing.getPeer().equals(peer) || !existing.getBody().equals(body)) throw conflict();
-        return HistoryEntry.from(existing);
+        return HistoryEntry.from(existing, peerUserIds(List.of(existing)).get(peer));
     }
 
     private AppUser lockOwner(UUID id) {
@@ -121,8 +123,9 @@ public class HistoryService {
 
     public CursorPage<Conversation> conversations(UUID owner, String before, int size) {
         var rows = history.conversations(owner, cursor(before, size), PageRequest.of(0, size + 1));
-        return new CursorPage<>(rows.stream().limit(size)
-                .map(m -> new Conversation(m.getPeer(), m.getName(), HistoryEntry.from(m))).toList(), next(rows, size));
+        var entries = page(rows, size);
+        return new CursorPage<>(entries.content().stream()
+                .map(entry -> new Conversation(entry.peer(), entry.name(), entry)).toList(), entries.nextCursor());
     }
 
     private String next(List<HistoryMessage> rows, int size) {
@@ -130,7 +133,21 @@ public class HistoryService {
     }
 
     private CursorPage<HistoryEntry> page(List<HistoryMessage> rows, int size) {
-        return new CursorPage<>(rows.stream().limit(size).map(HistoryEntry::from).toList(), next(rows, size));
+        var visible = rows.subList(0, Math.min(rows.size(), size));
+        var peerIds = peerUserIds(visible);
+        return new CursorPage<>(visible.stream()
+                .map(message -> HistoryEntry.from(message, peerIds.get(message.getPeer()))).toList(), next(rows, size));
+    }
+
+    private Map<String, UUID> peerUserIds(List<HistoryMessage> messages) {
+        if (messages.isEmpty()) return Map.of();
+        var peers = messages.stream().map(HistoryMessage::getPeer).distinct().toList();
+        var matches = sipAccounts.forPeers(peers).stream()
+                .collect(Collectors.groupingBy(SipAccountRepository.PeerMapping::getPeer));
+        return matches.entrySet().stream()
+                .filter(entry -> entry.getValue().size() == 1
+                        && entry.getValue().getFirst().getProvisioningStatus() == ProvisioningStatus.READY)
+                .collect(Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().getFirst().getUserId()));
     }
 
     private long cursor(String before, int size) {

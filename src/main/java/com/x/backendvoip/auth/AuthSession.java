@@ -9,7 +9,10 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "auth_sessions", indexes = @Index(name = "idx_auth_sessions_user", columnList = "user_id"))
+@Table(name = "auth_sessions", indexes = {
+        @Index(name = "idx_auth_sessions_user", columnList = "user_id"),
+        @Index(name = "idx_auth_sessions_presence", columnList = "presence_until")
+})
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class AuthSession {
@@ -28,6 +31,9 @@ public class AuthSession {
 
     @Column(name = "revoked_at")
     private Instant revokedAt;
+
+    @Column(name = "presence_until")
+    private Instant presenceUntil;
 
     public AuthSession(AppUser user, Instant createdAt, Instant expiresAt) {
         this.id = UUID.randomUUID();

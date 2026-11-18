@@ -32,6 +32,7 @@ Base URL: `http://localhost:8080`. JSON request/response bodies. OpenAPI source:
 | POST | `/api/v1/auth/logout` | 204, empty body | Bearer |
 | GET | `/api/v1/users/me` | 200, own user profile | Bearer |
 | GET | `/api/v1/users?page=0&size=20&q=alice` | 200, page | Bearer |
+| POST | `/api/v1/presence/heartbeat` | 200, online user IDs | Bearer |
 | GET | `/api/v1/sip/account` | 200, own SIP connection credentials | Bearer |
 | PUT | `/api/v1/message-history/messages/{id}` | 200, idempotently saved message | Bearer |
 | PUT | `/api/v1/message-history/send/{id}` | 200, direct message saved for both accounts | Bearer |
@@ -58,7 +59,7 @@ Login body:
 
 Own profile: `id` (UUID), `username`, `email`, `displayName`, `role`, `status`,
 `createdAt` (UTC instant), `sip`. Public directory entries contain `id`, `username`,
-`displayName`, `status`, `sip`; never email, password hashes, session IDs or SIP
+`displayName`, `status`, `sip`, and `online`; never email, password hashes, session IDs or SIP
 secrets. `sip` contains `extension`, `domain`, `provisioningStatus` and
 `extensionPresent` (nullable when not freshly checked). Me and directory resolve
 the configured domain and call `extension-list` on every request, matching both
@@ -74,6 +75,20 @@ Ordering is stable by username then UUID. Response:
 ```json
 {"content":[],"page":0,"size":20,"totalElements":0,"totalPages":0,"hasNext":false}
 ```
+
+## Online presence
+
+The web app posts to `/api/v1/presence/heartbeat` every 5 seconds. The request
+uses the existing bearer token and has no body. It renews that session for 75
+seconds and returns `{ "onlineUserIds": [...] }`. A user is online while at
+least one unexpired, unrevoked session has a recent heartbeat. Logout excludes
+that session from the next snapshot. A lost connection ages out after the last
+heartbeat. Blocked users are offline. Both the heartbeat and online lookup use
+the application database independently of SIP registration.
+
+History reads may return `peerUserId` based on the local extension mapping.
+Clients use that ID to display presence in restored conversations. Addresses
+without a unique ready app mapping have no application presence label.
 
 Errors use `application/problem+json` with `type`, `title`, `status`, `detail`,
 `instance` and `code`; invalid fields also have an `errors` object.

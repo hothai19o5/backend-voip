@@ -16,11 +16,37 @@ tags:
     description: Registration and revocable bearer sessions
   - name: Users
     description: Own profile and public user directory
+  - name: Presence
+    description: Active application sessions
   - name: SIP
     description: Own calling connection configuration
   - name: Message history
     description: Stored web chat and the authenticated account's SIP history
 paths:
+  /api/v1/presence/heartbeat:
+    post:
+      tags: [Presence]
+      operationId: presenceHeartbeat
+      summary: Renew the caller's presence and read online user IDs
+      description: >-
+        Renews the authenticated session's presence for 75 seconds. The snapshot
+        includes the caller and other ACTIVE users with at least one recent,
+        unexpired, unrevoked session. SIP registration is independent. Cache-Control no-store.
+      responses:
+        '200':
+          description: Current online application users
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [onlineUserIds]
+                properties:
+                  onlineUserIds:
+                    type: array
+                    uniqueItems: true
+                    items: { type: string, format: uuid }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /api/v1/message-history/send/{id}:
     put:
       tags: [Message history]
@@ -339,8 +365,8 @@ paths:
         Excludes caller; includes accounts with and without sessions and BLOCKED
         accounts. Calls FusionPBX extension-list on every valid request and joins
         mapped UUID and number to each app user. PBX-only extensions are not app/chat
-        identities. No presence or SIP registration is inferred. Ordered by username
-        then UUID. Email and credentials are never exposed. Dependency errors are
+        identities. Includes a snapshot of application presence in online. Ordered
+        by username then UUID. Email and credentials are never exposed. Dependency errors are
         returned rather than presenting a local-only result as current.
       parameters:
         - name: q
@@ -471,6 +497,11 @@ components:
           properties:
             id: { type: string }
             sequence: { type: string, description: Database sequence as a decimal string }
+            peerUserId:
+              type: string
+              format: uuid
+              nullable: true
+              description: User ID of the peer when the local app mapping is known.
     RegisterRequest:
       type: object
       additionalProperties: false
@@ -539,7 +570,7 @@ components:
             - $ref: '#/components/schemas/SipSummary'
     UserSummary:
       type: object
-      required: [id, username, displayName, status, sip]
+      required: [id, username, displayName, status, sip, online]
       properties:
         id:
           type: string
@@ -551,6 +582,9 @@ components:
         status:
           type: string
           enum: [ACTIVE, BLOCKED]
+        online:
+          type: boolean
+          description: At least one active application session has sent a recent heartbeat.
         sip:
           type: object
           nullable: true

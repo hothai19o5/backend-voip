@@ -2,6 +2,7 @@ package com.x.backendvoip.user;
 
 import com.x.backendvoip.common.ApiException;
 import com.x.backendvoip.common.PageResponse;
+import com.x.backendvoip.presence.PresenceService;
 import com.x.backendvoip.sip.SipProvisioningService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -20,6 +21,7 @@ import java.util.UUID;
 public class UserService {
     private final UserRepository users;
     private final SipProvisioningService sip;
+    private final PresenceService presence;
 
     public UserProfile me(UUID userId) {
         var user = users.findById(userId).orElseThrow(() ->
@@ -45,6 +47,8 @@ public class UserService {
         var pageable = PageRequest.of(page, size, Sort.by("username").ascending().and(Sort.by("id")));
         var result = users.findAll(specification, pageable);
         var calling = sip.summaries(result.stream().map(AppUser::getId).toList());
-        return PageResponse.from(result.map(user -> UserSummary.from(user, calling.get(user.getId()))));
+        var online = presence.onlineUserIds();
+        return PageResponse.from(result.map(user ->
+                UserSummary.from(user, calling.get(user.getId()), online.contains(user.getId()))));
     }
 }

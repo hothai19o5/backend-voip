@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.*;
@@ -25,6 +26,7 @@ import org.springframework.test.web.servlet.ResultActions;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -67,6 +69,7 @@ class AuthUsersIntegrationTests {
     @Autowired JwtDecoder decoder;
     @Autowired SipAccountRepository sipAccounts;
     @Autowired FusionPbxProperties pbxProperties;
+    @Autowired JdbcTemplate jdbc;
 
     @BeforeEach
     void resetDatabase() {
@@ -189,6 +192,66 @@ class AuthUsersIntegrationTests {
         mvc.perform(post("/api/v1/auth/logout")).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/v1/users").header("Authorization", "Basic YWxpY2U6cGFzc3dvcmQ="))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void presenceTracksHeartbeatsPerSessionThroughLogoutAndTimeout() throws Exception {
+        register("alice", "alice@example.com", "Alice");
+        register("bob", "bob@example.com", "Bob");
+        register("carol", "carol@example.com", "Carol");
+        String alice = token("alice");
+        String bob = token("bob");
+        String bobSecond = token("bob");
+        String bobId = decoder.decode(bob).getSubject();
+        String aliceId = decoder.decode(alice).getSubject();
+
+        mvc.perform(post("/api/v1/presence/heartbeat")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/users").header("Authorization", bearer(alice)))
+                .andExpect(jsonPath("$.content[*].username", contains("bob", "carol")))
+                .andExpect(jsonPath("$.content[*].online", contains(false, false)));
+        int pbxReads = pbx.count("extension-list");
+        heartbeat(bob).andExpect(jsonPath("$.onlineUserIds", contains(bobId)))
+                .andExpect(header().string("Cache-Control", containsString("no-store")));
+        heartbeat(bobSecond).andExpect(jsonPath("$.onlineUserIds", contains(bobId)));
+        assertThat(pbx.count("extension-list")).isEqualTo(pbxReads);
+
+        mvc.perform(get("/api/v1/users").header("Authorization", bearer(alice)))
+                .andExpect(jsonPath("$.content[*].online", contains(true, false)));
+        mvc.perform(post("/api/v1/auth/logout").header("Authorization", bearer(bob)))
+                .andExpect(status().isNoContent());
+        mvc.perform(post("/api/v1/presence/heartbeat").header("Authorization", bearer(bob)))
+                .andExpect(status().isUnauthorized());
+        heartbeat(alice).andExpect(jsonPath("$.onlineUserIds", containsInAnyOrder(aliceId, bobId)));
+
+        jdbc.update("update auth_sessions set presence_until = ? where id = ?",
+                Timestamp.from(Instant.now().minusSeconds(1)), java.util.UUID.fromString(decoder.decode(bobSecond).getId()));
+        heartbeat(alice).andExpect(jsonPath("$.onlineUserIds", contains(aliceId)));
+        heartbeat(bobSecond).andExpect(jsonPath("$.onlineUserIds", containsInAnyOrder(aliceId, bobId)));
+        mvc.perform(post("/api/v1/auth/logout").header("Authorization", bearer(bobSecond)))
+                .andExpect(status().isNoContent());
+        heartbeat(alice).andExpect(jsonPath("$.onlineUserIds", contains(aliceId)));
+    }
+
+    @Test
+    void presenceDropsBlockedAndExpiredSessionsEvenWithRecentHeartbeats() throws Exception {
+        register("alice", "alice@example.com", "Alice");
+        register("bob", "bob@example.com", "Bob");
+        register("carol", "carol@example.com", "Carol");
+        String alice = token("alice");
+        String bob = token("bob");
+        String carol = token("carol");
+        heartbeat(alice);
+        heartbeat(bob);
+        var bobSession = decoder.decode(bob);
+        jdbc.update("update auth_sessions set expires_at = ? where id = ?",
+                Timestamp.from(Instant.now().minusSeconds(1)), java.util.UUID.fromString(bobSession.getId()));
+        blockAlice();
+        heartbeat(carol).andExpect(jsonPath("$.onlineUserIds", contains(decoder.decode(carol).getSubject())));
+    }
+
+    private ResultActions heartbeat(String token) throws Exception {
+        return mvc.perform(post("/api/v1/presence/heartbeat").header("Authorization", bearer(token)))
+                .andExpect(status().isOk());
     }
 
     @Test

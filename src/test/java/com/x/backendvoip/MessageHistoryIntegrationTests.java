@@ -102,17 +102,21 @@ class MessageHistoryIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(id))
                 .andExpect(jsonPath("$.account").value("sip:1001@pbx.test"))
+                .andExpect(jsonPath("$.peerUserId").value(bob.getId().toString()))
                 .andExpect(jsonPath("$.status").value("accepted"));
-        send(alice, "request-1", "sip:1002@pbx.test", text).andExpect(status().isOk());
+        send(alice, "request-1", "sip:1002@pbx.test", text).andExpect(status().isOk())
+                .andExpect(jsonPath("$.peerUserId").value(bob.getId().toString()));
         send(alice, "request-1", "sip:1002@pbx.test", "Khác").andExpect(status().isConflict());
         send(alice, "request-2", "sip:1002@pbx.test", "Tin thứ hai").andExpect(status().isOk());
         assertThat(history.count()).isEqualTo(4);
 
         read(bob, "conversations").andExpect(jsonPath("$.content[0].peer").value("sip:1001@pbx.test"))
-                .andExpect(jsonPath("$.content[0].name").value("Alice"));
+                .andExpect(jsonPath("$.content[0].name").value("Alice"))
+                .andExpect(jsonPath("$.content[0].lastMessage.peerUserId").value(alice.getId().toString()));
         read(bob, "messages?peer=sip:1001@pbx.test").andExpect(jsonPath("$.content.length()").value(2));
         var first = read(bob, "updates?after=0&size=1").andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].id").value(id))
+                .andExpect(jsonPath("$.content[0].peerUserId").value(alice.getId().toString()))
                 .andExpect(jsonPath("$.content[0].direction").value("incoming"))
                 .andExpect(jsonPath("$.content[0].status").value("received"))
                 .andExpect(jsonPath("$.content[0].body").value(text)).andReturn();
@@ -182,6 +186,7 @@ class MessageHistoryIntegrationTests {
         read(alice, "messages?peer=sip:1002@pbx.test").andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].body").value(message("accepted").get("body")))
                 .andExpect(jsonPath("$.content[0].status").value("accepted"))
+                .andExpect(jsonPath("$.content[0].peerUserId").isEmpty())
                 .andExpect(jsonPath("$.nextCursor").isEmpty());
     }
 

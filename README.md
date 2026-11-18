@@ -141,8 +141,8 @@ remote server. Local mocks enforce the intended authentication contract.
   actual JPA persistence using an isolated H2 database in PostgreSQL mode. This
   verifies application behavior, not PostgreSQL-specific behavior.
 - `./mvnw.cmd package`: tests and executable JAR.
-- Postman collection contains one request per endpoint: Register, Login, Me,
-  List Users, My SIP Account and Logout. Select **Alohub Local** from
+- The Postman collection contains one request per endpoint, including Presence
+  Heartbeat. Select **Alohub Local** from
   `postman/environments/local.environment.yaml`. Edit the register/login JSON
   bodies and directory query parameters directly for each case you want to try.
 - The environment defines `base_url` (default `http://localhost:8080`) and
@@ -220,9 +220,8 @@ one-port routing and an explicit local API URL. Mock control routes are test-onl
 
 ## Scope
 
-Own profile contains email; the directory only exposes id, username, display name,
-account status and a safe SIP summary, and excludes the caller. New accounts default to USER/ACTIVE.
-Online presence and SIP registration are separate future integrations, so neither
-is fabricated from login sessions. Chat, admin endpoints, automated reconciliation,
-password reset/email verification and login rate limiting are not part of this
-first development increment.
+Own profile contains email. The directory excludes the caller and exposes the
+ID, username, display name, account status, web presence and a safe SIP summary.
+New accounts default to USER/ACTIVE. Web presence follows session heartbeats and
+uses the nullable `auth_sessions.presence_until` column managed by Hibernate.
+See the [API guide](docs/API.md#online-presence) for the heartbeat contract.
