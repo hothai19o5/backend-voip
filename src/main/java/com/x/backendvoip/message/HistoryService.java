@@ -15,10 +15,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
+
+import static com.x.backendvoip.sip.SipAddress.normalize;
 
 @Service
 @RequiredArgsConstructor
@@ -166,16 +167,6 @@ public class HistoryService {
             if (result < minimum) throw new NumberFormatException();
             return result;
         } catch (NumberFormatException error) { throw invalid("Invalid history cursor."); }
-    }
-
-    static String normalize(String value) {
-        if (value == null || value.length() > 320) throw invalid("Invalid SIP address.");
-        String address = value.strip().replaceFirst("(?i)^sips?:", "").split("[;?]", 2)[0];
-        int at = address.lastIndexOf('@');
-        if (at < 1 || at == address.length() - 1 || address.matches(".*[\\s<>].*")) throw invalid("Invalid SIP address.");
-        String normalized = "sip:" + address.substring(0, at) + "@" + address.substring(at + 1).toLowerCase(Locale.ROOT);
-        if (normalized.length() > 320) throw invalid("Invalid SIP address.");
-        return normalized;
     }
 
     private static ApiException invalid(String message) {

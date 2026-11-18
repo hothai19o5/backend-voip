@@ -39,11 +39,40 @@ Base URL: `http://localhost:8080`. JSON request/response bodies. OpenAPI source:
 | GET | `/api/v1/message-history/conversations?size=30` | 200, cursor page | Bearer |
 | GET | `/api/v1/message-history/messages?peer=sip:1002@pbx.test&size=50` | 200, cursor page | Bearer |
 | GET | `/api/v1/message-history/updates?after=0` | 200, ascending page of new messages | Bearer |
+| POST | `/api/v1/calls` | 204, call result stored | Bearer |
+| GET | `/api/v1/calls?missed=false&size=30` | 200, cursor page | Bearer |
+| GET | `/api/v1/calls/threads` | 200, latest call and unseen missed calls per SIP peer | Bearer |
+| GET | `/api/v1/calls/missed` | 200, count and acknowledgment sequence | Bearer |
+| PUT | `/api/v1/calls/missed` | 200, updated count | Bearer |
 | GET | `/actuator/health` | 200 when healthy | Public, no component details |
 
 Offline web chat, SIP message history, pagination, and retry behavior
 are described in [MESSAGE_HISTORY.md](MESSAGE_HISTORY.md). History is stored as
 plaintext in this increment. Logout revokes the session without deleting history.
+
+## Call history
+
+The web SIP client reports outcomes for the signed-in account. The application
+database stores them across sessions. Call observations are informational. The
+caller and callee report their own perspectives, for example `CANCELED` for
+the person who hung up while ringing and `MISSED` for the recipient. A deliberate
+decline is recorded as `DECLINED`. `answeredAt` is available for connected
+calls and duration in seconds is `(endedAt - answeredAt) / 1000` rounded down.
+
+Reuse the `id` and `direction` when retrying a call result. Incoming web sessions
+can share a SIP Call-ID. A confirmed answer can supersede a missed observation
+for the same ID. A CANCEL with SIP cause `200` records `ANSWERED_ELSEWHERE`.
+[RFC 3326 §3.1](https://www.rfc-editor.org/rfc/rfc3326.html#section-3.1)
+
+Chat requests `/api/v1/calls?peer=...` and merges calls by `endedAt` with its
+messages. `/api/v1/calls/threads` includes peers whose chat only contains calls.
+Use `nextCursor` with the same endpoint and filters. To mark missed calls as
+seen in a chat, send `peer` and the `through` value from its summary to
+`PUT /api/v1/calls/missed`. Calls reported later remain unread.
+
+The available history starts with call events observed by the web SIP client.
+Calls delivered only to other devices or while the web app is unavailable require
+a PBX call detail record integration for coverage.
 
 Register body:
 

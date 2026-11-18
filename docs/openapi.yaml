@@ -22,7 +22,122 @@ tags:
     description: Own calling connection configuration
   - name: Message history
     description: Stored web chat and the authenticated account's SIP history
+  - name: Calls
+    description: Call results observed by the web SIP client
 paths:
+  /api/v1/calls:
+    post:
+      tags: [Calls]
+      operationId: saveCallResult
+      summary: Save a finished call for the current user
+      description: >-
+        Retry with the same ID and direction to avoid duplicates. An incoming
+        result with stronger evidence can replace an unanswered observation.
+        This records a web client observation and does not query PBX CDRs.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CallWrite' }
+      responses:
+        '204':
+          description: Result stored or already reported
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: The ID and direction already belong to a different SIP peer
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    get:
+      tags: [Calls]
+      operationId: listCallHistory
+      summary: List the current user's calls, newest first
+      parameters:
+        - name: missed
+          in: query
+          description: Only list missed incoming calls, including previously seen calls
+          schema: { type: boolean, default: false }
+        - name: peer
+          in: query
+          description: Limit to one SIP address. With this filter, calls are ordered by end time for the chat timeline.
+          schema: { type: string, maxLength: 320, example: 'sip:1002@pbx.test' }
+        - name: before
+          in: query
+          description: Cursor returned in nextCursor from the preceding page with the same filter
+          schema: { type: string, pattern: '^[0-9]{1,19}:[0-9]{1,19}$' }
+        - name: size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 30 }
+      responses:
+        '200':
+          description: Call history page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CallPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/calls/threads:
+    get:
+      tags: [Calls]
+      operationId: listCallThreads
+      summary: List recent call activity for each chat peer
+      parameters:
+        - name: before
+          in: query
+          description: Cursor from the previous thread page
+          schema: { type: string, pattern: '^[0-9]{1,19}:[0-9]{1,19}$' }
+        - name: size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 30 }
+      responses:
+        '200':
+          description: Latest call by end time and the unseen missed call summary for each peer
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CallThreadPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/calls/missed:
+    get:
+      tags: [Calls]
+      operationId: getMissedCallSummary
+      summary: Get the current user's unseen missed call count
+      responses:
+        '200':
+          description: Unseen missed call count and acknowledgment sequence
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MissedCalls' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    put:
+      tags: [Calls]
+      operationId: markMissedCallsSeen
+      summary: Mark the missed calls in a snapshot as seen
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [through]
+              properties:
+                through:
+                  description: Non-null sequence returned in the summary to acknowledge
+                  type: string
+                  pattern: '^[0-9]{1,19}$'
+                peer:
+                  description: Mark only the selected SIP peer when supplied and return that peer's updated count
+                  type: string
+                  maxLength: 320
+      responses:
+        '200':
+          description: Updated summary including any missed calls reported after the acknowledged snapshot
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MissedCalls' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /api/v1/presence/heartbeat:
     post:
       tags: [Presence]
@@ -474,6 +589,65 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
   schemas:
+    CallDetails:
+      type: object
+      required: [peer, direction, status, video, startedAt, endedAt]
+      properties:
+        peer: { type: string, maxLength: 320, example: 'sip:1002@pbx.test' }
+        name: { type: string, maxLength: 255, nullable: true, example: 'Trần Hoàng Nam' }
+        direction: { type: string, enum: [INCOMING, OUTGOING] }
+        status:
+          type: string
+          enum: [COMPLETED, MISSED, DECLINED, CANCELED, BUSY, UNANSWERED, FAILED, INTERRUPTED, ANSWERED_ELSEWHERE]
+        video:
+          type: boolean
+          description: Whether video was offered, or whether video was used if answered
+        startedAt: { type: integer, format: int64, description: Call start in Unix milliseconds }
+        answeredAt: { type: integer, format: int64, nullable: true, description: Connection time in Unix milliseconds }
+        endedAt: { type: integer, format: int64, description: Call end in Unix milliseconds }
+    CallWrite:
+      allOf:
+        - $ref: '#/components/schemas/CallDetails'
+        - type: object
+          required: [id]
+          properties:
+            id: { type: string, minLength: 1, maxLength: 255, description: Stable SIP or client call identifier }
+    CallPage:
+      type: object
+      required: [content, nextCursor]
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/CallEntry'
+        nextCursor: { type: string, nullable: true, example: '1794934800000:42' }
+    CallEntry:
+      allOf:
+        - $ref: '#/components/schemas/CallWrite'
+        - type: object
+          required: [sequence, unread]
+          properties:
+            sequence: { type: string, example: '42' }
+            unread: { type: boolean, description: True for an unseen missed call }
+    CallThreadPage:
+      type: object
+      required: [content, nextCursor]
+      properties:
+        content:
+          type: array
+          items:
+            type: object
+            required: [lastCall, missed]
+            properties:
+              lastCall: { $ref: '#/components/schemas/CallEntry' }
+              missed: { $ref: '#/components/schemas/MissedCalls' }
+        nextCursor: { type: string, nullable: true, example: '1794934800000:42' }
+    MissedCalls:
+      type: object
+      required: [unread, through]
+      properties:
+        unread: { type: integer, format: int64, minimum: 0, example: 1 }
+        through: { type: string, nullable: true, example: '42' }
     HistoryWrite:
       type: object
       required: [account, peer, name, direction, body, status, time]

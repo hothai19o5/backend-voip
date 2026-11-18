@@ -1,0 +1,18 @@
+$kind: http-request
+name: Call Thread Summaries
+method: GET
+url: '{{base_url}}/api/v1/calls/threads'
+order: 5600
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('Call thread summaries returned', () => {
+        pm.response.to.have.status(200);
+        const page = pm.response.json();
+        pm.expect(page.content).to.be.an('array');
+        pm.expect(page).to.have.property('nextCursor');
+        for (const thread of page.content) {
+          pm.expect(thread.lastCall.peer).to.be.a('string');
+          pm.expect(thread.missed.unread).to.be.a('number');
+        }
+      });

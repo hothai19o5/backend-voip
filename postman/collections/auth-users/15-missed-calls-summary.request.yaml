@@ -1,0 +1,15 @@
+$kind: http-request
+name: Missed Call Summary
+method: GET
+url: '{{base_url}}/api/v1/calls/missed'
+order: 5400
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('Missed call summary returned', () => {
+        pm.response.to.have.status(200);
+        const summary = pm.response.json();
+        pm.expect(summary.unread).to.be.a('number');
+        pm.expect(summary).to.have.property('through');
+        pm.environment.set('missed_calls_through', summary.through ?? '');
+      });

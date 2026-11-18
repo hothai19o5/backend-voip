@@ -12,3 +12,6 @@ values:
   - key: direct_message_peer
     value: 'sip:1002@pbx.test'
     description: Replace with the SIP address of a registered VoIP web account.
+  - key: missed_calls_through
+    value: ''
+    description: Set by the missed call summary request when there are unread calls.

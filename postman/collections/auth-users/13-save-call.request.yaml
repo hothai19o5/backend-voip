@@ -1,0 +1,24 @@
+$kind: http-request
+name: Save Call Result
+method: POST
+url: '{{base_url}}/api/v1/calls'
+order: 5200
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "id": "{{$guid}}",
+      "direction": "INCOMING",
+      "status": "MISSED",
+      "peer": "sip:1002@pbx.test",
+      "video": false,
+      "startedAt": 1794934800000,
+      "answeredAt": null,
+      "endedAt": 1794934811000
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('Call result stored', () => pm.response.to.have.status(204));

@@ -1,0 +1,20 @@
+$kind: http-request
+name: List Call History
+method: GET
+url: '{{base_url}}/api/v1/calls?missed=true&size=30'
+order: 5300
+queryParams:
+  - key: missed
+    value: 'true'
+  - key: size
+    value: '30'
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('Missed calls page returned', () => {
+        pm.response.to.have.status(200);
+        const page = pm.response.json();
+        pm.expect(page.content).to.be.an('array');
+        pm.expect(page).to.have.property('nextCursor');
+        pm.expect(page.content.every(call => call.status === 'MISSED')).to.be.true;
+      });

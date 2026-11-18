@@ -1,0 +1,18 @@
+$kind: http-request
+name: Mark Missed Calls Seen
+method: PUT
+url: '{{base_url}}/api/v1/calls/missed'
+order: 5500
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    { "through": "{{missed_calls_through}}" }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('Updated missed call summary returned', () => {
+        pm.response.to.have.status(200);
+        pm.expect(pm.response.json().unread).to.be.a('number');
+      });
