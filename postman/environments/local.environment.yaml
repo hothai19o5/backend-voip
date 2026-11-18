@@ -6,3 +6,9 @@ values:
   - key: access_token
     value: ''
     description: Automatically set after a successful login and cleared after a successful logout
+  - key: direct_message_id
+    value: 'manual-direct-1'
+    description: Use a new ID for a new message and reuse it when retrying that message.
+  - key: direct_message_peer
+    value: 'sip:1002@pbx.test'
+    description: Replace with the SIP address of a registered VoIP web account.

@@ -1,7 +1,10 @@
 package com.x.backendvoip.message;
 
 import com.x.backendvoip.common.ApiException;
+import com.x.backendvoip.sip.ProvisioningStatus;
+import com.x.backendvoip.sip.SipAccountRepository;
 import com.x.backendvoip.user.AppUser;
+import com.x.backendvoip.user.UserStatus;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
@@ -10,6 +13,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -18,22 +22,25 @@ import java.util.UUID;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class HistoryService {
+    private static final String CHAT_PREFIX = "chat:";
     private final HistoryRepository history;
     private final EntityManager entities;
+    private final SipAccountRepository sipAccounts;
+    private final Clock clock;
 
     public record CursorPage<T>(List<T> content, String nextCursor) {}
     public record Conversation(String peer, String name, HistoryEntry lastMessage) {}
 
     @Transactional
     public HistoryEntry save(UUID ownerId, String id, HistoryWrite input) {
-        if (!id.matches("[A-Za-z0-9_.:-]{1,100}")) throw invalid("Invalid message id.");
+        if (!id.matches("[A-Za-z0-9_.:-]{1,100}") || id.startsWith(CHAT_PREFIX))
+            throw invalid("Invalid message id.");
         if (input.direction().equals("incoming") != input.status().equals("received"))
             throw invalid("Incoming messages require received status; outgoing messages cannot be received.");
         String peer = normalize(input.peer()), account = normalize(input.account());
         // Serializes concurrent retries for this owner, including first insert. No
         // process-local lock: multiple backend instances obey the same DB lock.
-        var owner = entities.find(AppUser.class, ownerId, LockModeType.PESSIMISTIC_WRITE);
-        if (owner == null) throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Authentication is required.");
+        var owner = lockOwner(ownerId);
         var message = history.findByOwnerIdAndMessageId(ownerId, id).orElse(null);
         if (message == null) {
             message = history.saveAndFlush(new HistoryMessage(owner, id, account, peer, input));
@@ -41,15 +48,75 @@ public class HistoryService {
             if (!message.getAccount().equals(account) || !message.getPeer().equals(peer)
                     || !message.getDirection().equals(input.direction())
                     || !message.getBody().equals(input.body()) || message.getTime() != input.time())
-                throw new ApiException(HttpStatus.CONFLICT, "MESSAGE_CONFLICT", "Message id already has different content.");
+                throw conflict();
             message.finish(input.status());
         }
         return HistoryEntry.from(message);
     }
 
+    @Transactional
+    public HistoryEntry send(UUID senderId, String requestId, DirectMessageWrite input) {
+        if (!requestId.matches("[A-Za-z0-9_.:-]{1,58}")) throw invalid("Invalid message id.");
+        if (input.body().indexOf(0) >= 0) throw invalid("Invalid message body.");
+        String peer = normalize(input.peer());
+        String id = CHAT_PREFIX + senderId + ":" + requestId;
+        var existing = history.findByOwnerIdAndMessageId(senderId, id).orElse(null);
+        if (existing != null) return retryDirect(existing, peer, input.body());
+
+        int at = peer.lastIndexOf('@');
+        var matches = sipAccounts.findFirst2ByDomainNameIgnoreCaseAndExtension(
+                peer.substring(at + 1), peer.substring(4, at));
+        if (matches.isEmpty())
+            throw new ApiException(HttpStatus.NOT_FOUND, "SIP_ONLY", "The address has no web chat account.");
+        if (matches.size() != 1 || matches.getFirst().getProvisioningStatus() != ProvisioningStatus.READY)
+            throw unavailable(HttpStatus.CONFLICT);
+        UUID recipientId = matches.getFirst().getUser().getId();
+        if (senderId.equals(recipientId)) throw invalid("You cannot send messages to yourself.");
+
+        // All writes take their owner's lock before allocating a sequence. Lock
+        // both accounts in a consistent order for concurrent messages in either direction.
+        boolean senderFirst = senderId.compareTo(recipientId) < 0;
+        var first = lockOwner(senderFirst ? senderId : recipientId);
+        var second = lockOwner(senderFirst ? recipientId : senderId);
+        var sender = senderFirst ? first : second;
+        var recipient = senderFirst ? second : first;
+        existing = history.findByOwnerIdAndMessageId(senderId, id).orElse(null);
+        if (existing != null) return retryDirect(existing, peer, input.body());
+        if (sender.getStatus() != UserStatus.ACTIVE || recipient.getStatus() != UserStatus.ACTIVE)
+            throw unavailable(HttpStatus.FORBIDDEN);
+
+        var account = sipAccounts.findByUserId(senderId)
+                .filter(mapping -> mapping.getProvisioningStatus() == ProvisioningStatus.READY)
+                .orElseThrow(() -> unavailable(HttpStatus.CONFLICT));
+        String from = normalize(account.getExtension() + "@" + account.getDomainName());
+        long time = clock.millis();
+        var outgoing = new HistoryWrite(from, peer, recipient.getDisplayName(), "outgoing",
+                input.body(), "accepted", time, null);
+        var incoming = new HistoryWrite(peer, from, sender.getDisplayName(), "incoming",
+                input.body(), "received", time, sender.getDisplayName());
+        var sent = history.save(new HistoryMessage(sender, id, from, peer, outgoing));
+        history.save(new HistoryMessage(recipient, id, peer, from, incoming));
+        return HistoryEntry.from(sent);
+    }
+
+    private HistoryEntry retryDirect(HistoryMessage existing, String peer, String body) {
+        if (!existing.getPeer().equals(peer) || !existing.getBody().equals(body)) throw conflict();
+        return HistoryEntry.from(existing);
+    }
+
+    private AppUser lockOwner(UUID id) {
+        var user = entities.find(AppUser.class, id, LockModeType.PESSIMISTIC_WRITE);
+        if (user == null) throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Authentication is required.");
+        return user;
+    }
+
     public CursorPage<HistoryEntry> messages(UUID owner, String peer, String before, int size) {
-        var rows = history.messages(owner, normalize(peer), cursor(before, size), PageRequest.of(0, size + 1));
-        return new CursorPage<>(rows.stream().limit(size).map(HistoryEntry::from).toList(), next(rows, size));
+        return page(history.messages(owner, normalize(peer), cursor(before, size), PageRequest.of(0, size + 1)), size);
+    }
+
+    public CursorPage<HistoryEntry> updates(UUID owner, String after, int size) {
+        validateSize(size);
+        return page(history.updates(owner, parseCursor(after, 0), PageRequest.of(0, size + 1)), size);
     }
 
     public CursorPage<Conversation> conversations(UUID owner, String before, int size) {
@@ -62,13 +129,24 @@ public class HistoryService {
         return rows.size() > size ? rows.get(size - 1).getSequence().toString() : null;
     }
 
+    private CursorPage<HistoryEntry> page(List<HistoryMessage> rows, int size) {
+        return new CursorPage<>(rows.stream().limit(size).map(HistoryEntry::from).toList(), next(rows, size));
+    }
+
     private long cursor(String before, int size) {
+        validateSize(size);
+        return before == null ? Long.MAX_VALUE : parseCursor(before, 1);
+    }
+
+    private void validateSize(int size) {
         if (size < 1 || size > 100) throw invalid("size must be 1–100.");
-        if (before == null) return Long.MAX_VALUE;
+    }
+
+    private long parseCursor(String value, int minimum) {
         try {
-            if (!before.matches("[0-9]{1,19}")) throw new NumberFormatException();
-            long result = Long.parseLong(before);
-            if (result < 1) throw new NumberFormatException();
+            if (!value.matches("[0-9]{1,19}")) throw new NumberFormatException();
+            long result = Long.parseLong(value);
+            if (result < minimum) throw new NumberFormatException();
             return result;
         } catch (NumberFormatException error) { throw invalid("Invalid history cursor."); }
     }
@@ -85,5 +163,13 @@ public class HistoryService {
 
     private static ApiException invalid(String message) {
         return new ApiException(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", message);
+    }
+
+    private static ApiException conflict() {
+        return new ApiException(HttpStatus.CONFLICT, "MESSAGE_CONFLICT", "Message id already has different content.");
+    }
+
+    private static ApiException unavailable(HttpStatus status) {
+        return new ApiException(status, "CHAT_UNAVAILABLE", "This account is unavailable for web chat.");
     }
 }

@@ -19,8 +19,88 @@ tags:
   - name: SIP
     description: Own calling connection configuration
   - name: Message history
-    description: Persistent copies of SIP messages observed by the authenticated web account
+    description: Stored web chat and the authenticated account's SIP history
 paths:
+  /api/v1/message-history/send/{id}:
+    put:
+      tags: [Message history]
+      operationId: sendDirectMessage
+      summary: Store a direct message for both web accounts
+      description: >-
+        Derives the sender from the bearer token and resolves the recipient by
+        SIP address in the local account mapping. Saves outgoing and incoming
+        entries atomically and returns the outgoing entry after commit.
+        No SIP registration or FusionPBX request is required. Retry with the
+        same id and content after an uncertain result. Only SIP_ONLY indicates
+        the address is outside web chat and may be handled by a SIP client.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, pattern: '^[A-Za-z0-9_.:-]{1,58}$' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [peer, body]
+              properties:
+                peer: { type: string, maxLength: 320, example: 'sip:1002@pbx.test' }
+                body: { type: string, minLength: 1, maxLength: 5000 }
+      responses:
+        '200':
+          description: Both entries persisted, including on duplicate retry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HistoryEntry'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: CHAT_UNAVAILABLE when the recipient is blocked
+        '404':
+          description: SIP_ONLY when no local mapping exists for the peer
+        '409':
+          description: MESSAGE_CONFLICT for a changed retry or CHAT_UNAVAILABLE for an unusable mapping
+  /api/v1/message-history/updates:
+    get:
+      tags: [Message history]
+      operationId: listHistoryUpdates
+      summary: List own new history entries in ascending sequence order
+      description: >-
+        Initialize after from the newest entry of the first conversation page,
+        or use 0 for an empty history. Advance after to the last returned
+        sequence. A non-null nextCursor indicates more entries are available.
+        Only new entries are returned. The response does not acknowledge reading.
+      parameters:
+        - name: after
+          in: query
+          required: true
+          schema: { type: string, pattern: '^[0-9]{1,19}$' }
+        - name: size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 100 }
+      responses:
+        '200':
+          description: New entries strictly after the supplied sequence
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [content, nextCursor]
+                properties:
+                  content:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/HistoryEntry'
+                  nextCursor: { type: string, nullable: true }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /api/v1/message-history/messages/{id}:
     put:
       tags: [Message history]
@@ -32,6 +112,7 @@ paths:
         can transition to accepted/failed; terminal status never regresses on retry.
         Immutable account, peer, direction, body and time must match on retry.
         Owner is derived from bearer subject. Does not call FusionPBX.
+        IDs beginning with chat: are reserved for direct messages.
       parameters:
         - name: id
           in: path

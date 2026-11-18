@@ -2,7 +2,7 @@
 
 Spring Boot 4.1.2 / Java 25 / PostgreSQL. First increment: registration, login,
 session revocation, FusionPBX extension provisioning, a searchable user directory
-and persistent SIP message history.
+and persistent web chat and SIP message history.
 No database migrations;
 Hibernate uses `ddl-auto=update` for development.
 
@@ -39,9 +39,10 @@ session rows are retained for now; scheduled retention cleanup is future work.
 
 ## Message history
 
-SIP message history is saved in PostgreSQL per authenticated account and restored
-after login. Content is plaintext in this increment. Transport remains SIP MESSAGE;
-the history API does not send offline messages. See [the history contract and
+Direct messages between web accounts are saved for both participants in one
+PostgreSQL transaction. The recipient sees messages after logging in or
+reconnecting. SIP message history is also stored per authenticated account.
+Content is plaintext in this increment. See [the history contract and
 verification steps](docs/MESSAGE_HISTORY.md). The Postman collection keeps one
 editable request per endpoint, including save, list conversations and list messages.
 

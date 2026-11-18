@@ -1,8 +1,11 @@
 package com.x.backendvoip;
 
 import com.x.backendvoip.message.HistoryRepository;
+import com.x.backendvoip.sip.SipAccount;
+import com.x.backendvoip.sip.SipAccountRepository;
 import com.x.backendvoip.user.AppUser;
 import com.x.backendvoip.user.UserRepository;
+import com.x.backendvoip.user.UserStatus;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -19,6 +22,9 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
@@ -33,6 +39,7 @@ class MessageHistoryIntegrationTests {
     @Autowired ObjectMapper json;
     @Autowired UserRepository users;
     @Autowired HistoryRepository history;
+    @Autowired SipAccountRepository sipAccounts;
     AppUser alice;
     AppUser bob;
 
@@ -47,6 +54,8 @@ class MessageHistoryIntegrationTests {
     @AfterEach
     void cleanup() {
         history.deleteAllInBatch();
+        sipAccounts.findByUserId(alice.getId()).ifPresent(sipAccounts::delete);
+        sipAccounts.findByUserId(bob.getId()).ifPresent(sipAccounts::delete);
         users.delete(alice);
         users.delete(bob);
     }
@@ -66,6 +75,99 @@ class MessageHistoryIntegrationTests {
     ResultActions read(AppUser owner, String path) throws Exception {
         return mvc.perform(get("/api/v1/message-history/" + path)
                 .with(jwt().jwt(j -> j.subject(owner.getId().toString()))));
+    }
+
+    void mapExtensions() {
+        UUID domain = UUID.randomUUID();
+        var a = new SipAccount(alice, domain, "PBX.test", "1001", Instant.now());
+        var b = new SipAccount(bob, domain, "PBX.test", "1002", Instant.now());
+        a.complete(UUID.randomUUID(), "unused", Instant.now());
+        b.complete(UUID.randomUUID(), "unused", Instant.now());
+        sipAccounts.saveAll(java.util.List.of(a, b));
+    }
+
+    ResultActions send(AppUser sender, String id, String peer, String body) throws Exception {
+        return mvc.perform(put("/api/v1/message-history/send/{id}", id)
+                .with(jwt().jwt(j -> j.subject(sender.getId().toString())))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(Map.of("peer", peer, "body", body))));
+    }
+
+    @Test
+    void offlineRecipientHasBothMessagesAndCanSyncInOrderWithoutPbx() throws Exception {
+        mapExtensions();
+        String text = "Bảo ơi, chào bạn 👋";
+        String id = "chat:" + alice.getId() + ":request-1";
+        send(alice, "request-1", "sips:1002@PBX.test;transport=ws", text)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(id))
+                .andExpect(jsonPath("$.account").value("sip:1001@pbx.test"))
+                .andExpect(jsonPath("$.status").value("accepted"));
+        send(alice, "request-1", "sip:1002@pbx.test", text).andExpect(status().isOk());
+        send(alice, "request-1", "sip:1002@pbx.test", "Khác").andExpect(status().isConflict());
+        send(alice, "request-2", "sip:1002@pbx.test", "Tin thứ hai").andExpect(status().isOk());
+        assertThat(history.count()).isEqualTo(4);
+
+        read(bob, "conversations").andExpect(jsonPath("$.content[0].peer").value("sip:1001@pbx.test"))
+                .andExpect(jsonPath("$.content[0].name").value("Alice"));
+        read(bob, "messages?peer=sip:1001@pbx.test").andExpect(jsonPath("$.content.length()").value(2));
+        var first = read(bob, "updates?after=0&size=1").andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(id))
+                .andExpect(jsonPath("$.content[0].direction").value("incoming"))
+                .andExpect(jsonPath("$.content[0].status").value("received"))
+                .andExpect(jsonPath("$.content[0].body").value(text)).andReturn();
+        String cursor = json.readTree(first.getResponse().getContentAsString()).path("nextCursor").asString();
+        read(bob, "updates?after=" + cursor).andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].body").value("Tin thứ hai"))
+                .andExpect(jsonPath("$.nextCursor").isEmpty());
+        read(alice, "updates?after=0").andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.content[0].direction").value("outgoing"));
+    }
+
+    @Test
+    void rejectsUnavailableRecipientsAndPreservesLegacySipHistory() throws Exception {
+        mapExtensions();
+        bob.changeStatus(UserStatus.BLOCKED);
+        users.save(bob);
+        send(alice, "blocked", "sip:1002@pbx.test", "Hello")
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("CHAT_UNAVAILABLE"));
+        send(alice, "external", "sip:1999@pbx.test", "Hello")
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("SIP_ONLY"));
+        send(alice, "self", "sip:1001@pbx.test", "Hello").andExpect(status().isBadRequest());
+        send(alice, "empty", "sip:1002@pbx.test", " ").andExpect(status().isBadRequest());
+        save(alice, "chat:reserved", message("accepted")).andExpect(status().isBadRequest());
+        assertThat(history.count()).isZero();
+        save(alice, "existing-sip-id", message("accepted")).andExpect(status().isOk());
+        read(bob, "updates?after=0").andExpect(jsonPath("$.content").isEmpty());
+        read(alice, "updates?after=-1").andExpect(status().isBadRequest());
+        mvc.perform(get("/api/v1/message-history/updates?after=0")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void concurrentRetriesAndReverseSendsProduceOneCopyPerAccount() throws Exception {
+        mapExtensions();
+        var start = new CountDownLatch(1);
+        try (var executor = Executors.newFixedThreadPool(3)) {
+            var first = executor.submit(() -> {
+                start.await();
+                send(alice, "same", "sip:1002@pbx.test", "Forward").andExpect(status().isOk());
+                return null;
+            });
+            var retry = executor.submit(() -> {
+                start.await();
+                send(alice, "same", "sip:1002@pbx.test", "Forward").andExpect(status().isOk());
+                return null;
+            });
+            var reverse = executor.submit(() -> {
+                start.await();
+                send(bob, "same", "sip:1001@pbx.test", "Reverse").andExpect(status().isOk());
+                return null;
+            });
+            start.countDown();
+            for (var result : java.util.List.of(first, retry, reverse)) result.get(15, TimeUnit.SECONDS);
+        }
+        assertThat(history.count()).isEqualTo(4);
+        read(bob, "updates?after=0").andExpect(jsonPath("$.content.length()").value(2));
     }
 
     @Test

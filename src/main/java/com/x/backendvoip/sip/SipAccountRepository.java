@@ -11,6 +11,7 @@ import java.util.UUID;
 
 public interface SipAccountRepository extends JpaRepository<SipAccount, UUID> {
     Optional<SipAccount> findByUserId(UUID userId);
+    List<SipAccount> findFirst2ByDomainNameIgnoreCaseAndExtension(String domainName, String extension);
     @Query("select a.extension from SipAccount a where a.domainId = :domainId")
     List<String> reservedExtensions(@Param("domainId") UUID domainId);
     @Query("select a from SipAccount a join fetch a.user where a.user.id in :userIds")

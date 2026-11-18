@@ -56,8 +56,23 @@ try {
   postman collection run postman/collections/auth-users -i 'Save Message History' -i 'History Conversations' -i 'History Messages' `
     --env-var 'base_url=http://127.0.0.1:18083' --env-var "access_token=$($session.accessToken)" --no-report-events
   if ($LASTEXITCODE -ne 0) { throw 'History Postman requests failed.' }
+
+  $recipientName = "${username}_b"
+  $recipientRegistration = @{
+    username = $recipientName; email = "$recipientName@example.test"; displayName = 'Offline Recipient'; password = 'verification-password'
+  } | ConvertTo-Json
+  $recipient = Invoke-RestMethod http://127.0.0.1:18083/api/v1/auth/register -Method Post -ContentType application/json -Body $recipientRegistration
+  $recipientPeer = "sip:$($recipient.sip.extension)@$($recipient.sip.domain)"
+  $senderPeer = "sip:$($session.user.sip.extension)@$($session.user.sip.domain)"
+  postman collection run postman/collections/auth-users -i 'Send Direct Message' `
+    --env-var 'base_url=http://127.0.0.1:18083' --env-var "access_token=$($session.accessToken)" `
+    --env-var 'direct_message_id=offline-verification' --env-var "direct_message_peer=$recipientPeer" --no-report-events
+  if ($LASTEXITCODE -ne 0) { throw 'Direct message Postman request failed.' }
+
   $server.Kill($true)
   $null = $server.WaitForExit(5000)
+  $mock.Kill($true)
+  $null = $mock.WaitForExit(5000)
   $server = Start-Backend 'restarted'
   $processes += $server
   $session = Invoke-RestMethod http://127.0.0.1:18083/api/v1/auth/login -Method Post -ContentType application/json -Body $loginBody
@@ -66,6 +81,20 @@ try {
     throw 'Saved history was not restored after backend restart.'
   }
   Write-Output 'PASS persisted Unicode history survived executable backend restart and a fresh login.'
+
+  $recipientLogin = @{ username = $recipientName; password = 'verification-password' } | ConvertTo-Json
+  $recipientSession = Invoke-RestMethod http://127.0.0.1:18083/api/v1/auth/login -Method Post -ContentType application/json -Body $recipientLogin
+  postman collection run postman/collections/auth-users -i 'History Updates' `
+    --env-var 'base_url=http://127.0.0.1:18083' --env-var "access_token=$($recipientSession.accessToken)" --no-report-events
+  if ($LASTEXITCODE -ne 0) { throw 'History updates Postman request failed.' }
+  $recipientHistory = Invoke-RestMethod "http://127.0.0.1:18083/api/v1/message-history/messages?peer=$([Uri]::EscapeDataString($senderPeer))" `
+    -Headers @{ Authorization = "Bearer $($recipientSession.accessToken)" }
+  if ($recipientHistory.content.Count -ne 1 -or
+      $recipientHistory.content[0].direction -ne 'incoming' -or
+      $recipientHistory.content[0].body -ne 'Xin chào khi bạn mở lại app 👋') {
+    throw 'The offline recipient did not receive exactly one stored message.'
+  }
+  Write-Output 'PASS offline recipient received the stored message on first login after backend restart.'
 } finally {
   foreach ($process in $processes) { if (!$process.HasExited) { $process.Kill($true); $null = $process.WaitForExit(5000) } }
   foreach ($key in $savedEnvironment.Keys) { [Environment]::SetEnvironmentVariable($key, $savedEnvironment[$key], 'Process') }

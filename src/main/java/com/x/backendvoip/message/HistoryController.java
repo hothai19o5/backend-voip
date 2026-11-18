@@ -14,6 +14,12 @@ import java.util.UUID;
 public class HistoryController {
     private final HistoryService history;
 
+    @PutMapping("/send/{id}")
+    public HistoryEntry send(@AuthenticationPrincipal Jwt jwt, @PathVariable String id,
+                             @Valid @RequestBody DirectMessageWrite input) {
+        return history.send(UUID.fromString(jwt.getSubject()), id, input);
+    }
+
     @PutMapping("/messages/{id}")
     public HistoryEntry save(@AuthenticationPrincipal Jwt jwt, @PathVariable String id,
                              @Valid @RequestBody HistoryWrite input) {
@@ -25,6 +31,12 @@ public class HistoryController {
             @RequestParam String peer, @RequestParam(required = false) String before,
             @RequestParam(defaultValue = "50") int size) {
         return history.messages(UUID.fromString(jwt.getSubject()), peer, before, size);
+    }
+
+    @GetMapping("/updates")
+    public HistoryService.CursorPage<HistoryEntry> updates(@AuthenticationPrincipal Jwt jwt,
+            @RequestParam String after, @RequestParam(defaultValue = "100") int size) {
+        return history.updates(UUID.fromString(jwt.getSubject()), after, size);
     }
 
     @GetMapping("/conversations")

@@ -1,0 +1,20 @@
+$kind: http-request
+name: History Updates
+method: GET
+url: '{{base_url}}/api/v1/message-history/updates?after=0'
+order: 5000
+queryParams:
+  - key: after
+    value: '0'
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('Updates page returned', () => {
+        pm.response.to.have.status(200);
+        const page = pm.response.json();
+        pm.expect(page.content).to.be.an('array');
+        pm.expect(page).to.have.property('nextCursor');
+        for (let i = 1; i < page.content.length; i++) {
+          pm.expect(BigInt(page.content[i].sequence) > BigInt(page.content[i - 1].sequence)).to.be.true;
+        }
+      });

@@ -1,0 +1,24 @@
+$kind: http-request
+name: Send Direct Message
+method: PUT
+url: '{{base_url}}/api/v1/message-history/send/{{direct_message_id}}'
+order: 4900
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "peer": "{{direct_message_peer}}",
+      "body": "Xin chào khi bạn mở lại app 👋"
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('Direct message saved', () => pm.response.to.have.status(200));
+      pm.test('Outgoing entry has the server ID and status', () => {
+        const message = pm.response.json();
+        pm.expect(message.id).to.match(/^chat:/);
+        pm.expect(message.direction).to.eql('outgoing');
+        pm.expect(message.status).to.eql('accepted');
+      });

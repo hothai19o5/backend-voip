@@ -34,11 +34,13 @@ Base URL: `http://localhost:8080`. JSON request/response bodies. OpenAPI source:
 | GET | `/api/v1/users?page=0&size=20&q=alice` | 200, page | Bearer |
 | GET | `/api/v1/sip/account` | 200, own SIP connection credentials | Bearer |
 | PUT | `/api/v1/message-history/messages/{id}` | 200, idempotently saved message | Bearer |
+| PUT | `/api/v1/message-history/send/{id}` | 200, direct message saved for both accounts | Bearer |
 | GET | `/api/v1/message-history/conversations?size=30` | 200, cursor page | Bearer |
 | GET | `/api/v1/message-history/messages?peer=sip:1002@pbx.test&size=50` | 200, cursor page | Bearer |
+| GET | `/api/v1/message-history/updates?after=0` | 200, ascending page of new messages | Bearer |
 | GET | `/actuator/health` | 200 when healthy | Public, no component details |
 
-Persistent SIP message history, pagination, status transitions and retry behavior
+Offline web chat, SIP message history, pagination, and retry behavior
 are described in [MESSAGE_HISTORY.md](MESSAGE_HISTORY.md). History is stored as
 plaintext in this increment. Logout revokes the session without deleting history.
 
