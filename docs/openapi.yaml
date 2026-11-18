@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
-  title: Alohub Auth and Users API
-  version: 0.1.0
+  title: VoIP API
+  version: 0.2.0
   description: >-
     Registration creates a USER and provisions its FusionPBX extension automatically.
     Bearer JWTs use persisted revocable sessions. Account status is independent of
@@ -18,7 +18,119 @@ tags:
     description: Own profile and public user directory
   - name: SIP
     description: Own calling connection configuration
+  - name: Message history
+    description: Persistent copies of SIP messages observed by the authenticated web account
 paths:
+  /api/v1/message-history/messages/{id}:
+    put:
+      tags: [Message history]
+      operationId: saveMessageHistory
+      summary: Save or acknowledge a SIP message in own history
+      description: >-
+        Idempotent by caller and local id. Does not send a SIP message or provide
+        offline delivery. Plaintext history, no additional encryption. Only pending
+        can transition to accepted/failed; terminal status never regresses on retry.
+        Immutable account, peer, direction, body and time must match on retry.
+        Owner is derived from bearer subject. Does not call FusionPBX.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, pattern: '^[A-Za-z0-9_.:-]{1,100}$' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HistoryWrite'
+      responses:
+        '200':
+          description: Message persisted, including on duplicate retry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HistoryEntry'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: MESSAGE_CONFLICT - same id with different immutable content
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/message-history/conversations:
+    get:
+      tags: [Message history]
+      operationId: listHistoryConversations
+      summary: List own conversations with their latest saved message
+      description: >-
+        Descending database sequence order, one latest entry per normalized peer.
+        Cursor pagination is a live view; a conversation receiving a newer message
+        during paging can move to the first page. Refresh the list to see it.
+      parameters:
+        - $ref: '#/components/parameters/HistoryBefore'
+        - name: size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 30 }
+      responses:
+        '200':
+          description: Conversation page; null nextCursor means no older entries
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [content, nextCursor]
+                properties:
+                  content:
+                    type: array
+                    items:
+                      type: object
+                      required: [peer, name, lastMessage]
+                      properties:
+                        peer: { type: string }
+                        name: { type: string }
+                        lastMessage:
+                          $ref: '#/components/schemas/HistoryEntry'
+                  nextCursor: { type: string, nullable: true }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/message-history/messages:
+    get:
+      tags: [Message history]
+      operationId: listHistoryMessages
+      summary: List saved messages for one peer, newest first
+      parameters:
+        - name: peer
+          in: query
+          required: true
+          schema: { type: string, maxLength: 320 }
+          example: sip:1002@pbx.test
+        - $ref: '#/components/parameters/HistoryBefore'
+        - name: size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        '200':
+          description: Message page; null nextCursor means no older entries
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [content, nextCursor]
+                properties:
+                  content:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/HistoryEntry'
+                  nextCursor: { type: string, nullable: true }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /api/v1/auth/register:
     post:
       tags: [Auth]
@@ -214,6 +326,12 @@ paths:
         '504':
           $ref: '#/components/responses/TelephonyFailure'
 components:
+  parameters:
+    HistoryBefore:
+      name: before
+      in: query
+      description: Positive signed 64-bit sequence returned in nextCursor; omit on first page
+      schema: { type: string, pattern: '^[0-9]{1,19}$' }
   securitySchemes:
     bearerAuth:
       type: http
@@ -249,6 +367,29 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
   schemas:
+    HistoryWrite:
+      type: object
+      required: [account, peer, name, direction, body, status, time]
+      properties:
+        account: { type: string, maxLength: 320, example: 'sip:1001@pbx.test' }
+        peer: { type: string, maxLength: 320, example: 'sip:1002@pbx.test' }
+        name: { type: string, minLength: 1, maxLength: 255, example: Bob }
+        direction: { type: string, enum: [incoming, outgoing] }
+        body: { type: string, minLength: 1, maxLength: 65535, example: 'Xin chào' }
+        status:
+          type: string
+          enum: [pending, accepted, failed, received]
+          description: Incoming requires received; outgoing requires pending, accepted or failed. SIP accepted is not delivered/read.
+        time: { type: integer, format: int64, minimum: 1, maximum: 8640000000000000, description: Epoch milliseconds }
+        senderName: { type: string, maxLength: 255, nullable: true }
+    HistoryEntry:
+      allOf:
+        - $ref: '#/components/schemas/HistoryWrite'
+        - type: object
+          required: [id, sequence]
+          properties:
+            id: { type: string }
+            sequence: { type: string, description: Database sequence as a decimal string }
     RegisterRequest:
       type: object
       additionalProperties: false

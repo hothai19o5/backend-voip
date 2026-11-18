@@ -1,7 +1,8 @@
 # Alohub backend
 
 Spring Boot 4.1.2 / Java 25 / PostgreSQL. First increment: registration, login,
-session revocation, FusionPBX extension provisioning and a searchable user directory.
+session revocation, FusionPBX extension provisioning, a searchable user directory
+and persistent SIP message history.
 No database migrations;
 Hibernate uses `ddl-auto=update` for development.
 
@@ -19,7 +20,7 @@ $env:CORS_ALLOWED_ORIGINS = 'http://localhost:5173,http://127.0.0.1:5173'
 ```
 
 The database must exist; Hibernate creates/updates application tables (`users`,
-`auth_sessions`, `sip_accounts`). The default datasource matches the included development Compose
+`auth_sessions`, `sip_accounts`, `message_history`). The default datasource matches the included development Compose
 file. If you use that file, start Docker Desktop then run
 `docker compose up -d postgres`. Compose ports are bound to localhost. Redis is
 optional and unused in this increment. Automatic Compose startup is disabled;
@@ -35,6 +36,14 @@ Auth uses an explicit bearer header, not cookies. The frontend should keep the
 token in memory and require login again when it expires. Logout revokes the
 current session immediately; other device sessions remain active. Expired/revoked
 session rows are retained for now; scheduled retention cleanup is future work.
+
+## Message history
+
+SIP message history is saved in PostgreSQL per authenticated account and restored
+after login. Content is plaintext in this increment. Transport remains SIP MESSAGE;
+the history API does not send offline messages. See [the history contract and
+verification steps](docs/MESSAGE_HISTORY.md). The Postman collection keeps one
+editable request per endpoint, including save, list conversations and list messages.
 
 ## FusionPBX connection
 

@@ -126,7 +126,7 @@ public class SecurityConfiguration {
     CorsConfigurationSource corsConfigurationSource(CorsProperties properties) {
         var config = new CorsConfiguration();
         config.setAllowedOrigins(properties.allowedOrigins());
-        config.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
+        config.setAllowedMethods(List.of("GET", "POST", "OPTIONS", "PUT"));
         config.setAllowedHeaders(List.of(HttpHeaders.AUTHORIZATION, HttpHeaders.CONTENT_TYPE, HttpHeaders.ACCEPT));
         config.setAllowCredentials(false);
         config.setMaxAge(3600L);

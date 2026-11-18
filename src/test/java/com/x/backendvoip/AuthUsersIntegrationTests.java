@@ -48,6 +48,11 @@ class AuthUsersIntegrationTests {
         registry.add("app.fusionpbx.api-token", () -> FusionPbxStubServer.TOKEN);
         registry.add("app.fusionpbx.credentials-key", () -> "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
         registry.add("app.fusionpbx.request-timeout", () -> "500ms");
+        registry.add("app.fusionpbx.domain-name", () -> "10.155.199.136");
+        registry.add("app.fusionpbx.server-ip", () -> "10.155.199.136");
+        registry.add("app.fusionpbx.wss-url", () -> "wss://10.155.199.136:7443");
+        registry.add("app.fusionpbx.extension-start", () -> "1001");
+        registry.add("app.cors.allowed-origins", () -> "http://localhost:5173,http://127.0.0.1:5173");
     }
 
     @AfterAll

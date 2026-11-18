@@ -33,7 +33,14 @@ Base URL: `http://localhost:8080`. JSON request/response bodies. OpenAPI source:
 | GET | `/api/v1/users/me` | 200, own user profile | Bearer |
 | GET | `/api/v1/users?page=0&size=20&q=alice` | 200, page | Bearer |
 | GET | `/api/v1/sip/account` | 200, own SIP connection credentials | Bearer |
+| PUT | `/api/v1/message-history/messages/{id}` | 200, idempotently saved message | Bearer |
+| GET | `/api/v1/message-history/conversations?size=30` | 200, cursor page | Bearer |
+| GET | `/api/v1/message-history/messages?peer=sip:1002@pbx.test&size=50` | 200, cursor page | Bearer |
 | GET | `/actuator/health` | 200 when healthy | Public, no component details |
+
+Persistent SIP message history, pagination, status transitions and retry behavior
+are described in [MESSAGE_HISTORY.md](MESSAGE_HISTORY.md). History is stored as
+plaintext in this increment. Logout revokes the session without deleting history.
 
 Register body:
 

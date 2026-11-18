@@ -1,0 +1,29 @@
+$kind: http-request
+name: Save Message History
+method: PUT
+url: '{{base_url}}/api/v1/message-history/messages/manual-message-1'
+order: 4600
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "account": "sip:1001@pbx.test",
+      "peer": "sip:1002@pbx.test",
+      "name": "Bob",
+      "direction": "outgoing",
+      "body": "Xin chào 👋",
+      "status": "accepted",
+      "time": 1794934800000
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('Message saved', () => pm.response.to.have.status(200));
+      pm.test('Id and sequence returned', () => {
+        const message = pm.response.json();
+        pm.expect(message.id).to.eql('manual-message-1');
+        pm.expect(message.sequence).to.be.a('string');
+        pm.expect(message.status).to.eql('accepted');
+      });

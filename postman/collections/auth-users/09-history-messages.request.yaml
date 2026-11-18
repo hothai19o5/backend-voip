@@ -1,0 +1,18 @@
+$kind: http-request
+name: History Messages
+method: GET
+url: '{{base_url}}/api/v1/message-history/messages?peer=sip%3A1002%40pbx.test&size=50'
+order: 4800
+queryParams:
+  - key: peer
+    value: sip:1002@pbx.test
+  - key: size
+    value: '50'
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('Message page returned', () => {
+        pm.response.to.have.status(200);
+        pm.expect(pm.response.json().content).to.be.an('array');
+        pm.expect(pm.response.json()).to.have.property('nextCursor');
+      });
