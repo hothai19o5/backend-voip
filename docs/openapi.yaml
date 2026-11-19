@@ -219,6 +219,60 @@ paths:
                     items: { type: string, format: uuid }
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /api/v1/message-history/attachments/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: {type: string, maxLength: 100}
+    put:
+      tags: [Message history]
+      operationId: sendAttachment
+      summary: Send a file to another VoIP user
+      description: Use the same client request ID to retry the same peer and file. The response contains the stored message ID.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [peer, file]
+              properties:
+                peer: {type: string, example: 'sip:1002@pbx.test'}
+                file: {type: string, format: binary, description: 'One nonempty file, up to 10 MiB'}
+      responses:
+        '200':
+          description: Attachment message saved for sender and recipient
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HistoryEntry'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403': {description: Sender or recipient cannot use web chat}
+        '404': {description: Destination has no VoIP web account}
+        '409': {description: Conflicting retry or unavailable SIP mapping}
+        '413': {description: File is larger than 10 MiB}
+        '503': {description: Object storage unavailable}
+    get:
+      tags: [Message history]
+      operationId: downloadAttachment
+      summary: Download an attachment from the caller's own chat history
+      description: Pass the stored message ID from a history entry. Only the sender and recipient have access.
+      responses:
+        '200':
+          description: File bytes with attachment disposition and no-store caching
+          content:
+            application/octet-stream:
+              schema: {type: string, format: binary}
+            'image/*':
+              schema: {type: string, format: binary}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404': {description: Attachment is missing or absent from caller's history}
+        '503': {description: Object storage unavailable}
   /api/v1/message-history/send/{id}:
     put:
       tags: [Message history]
@@ -768,6 +822,13 @@ components:
               format: uuid
               nullable: true
               description: User ID of the peer when the local app mapping is known.
+            attachment:
+              type: object
+              required: [filename, contentType, size]
+              properties:
+                filename: {type: string, example: 'ảnh chia sẻ.png'}
+                contentType: {type: string, example: image/png}
+                size: {type: integer, format: int64, minimum: 1, maximum: 10485760}
     RegisterRequest:
       type: object
       additionalProperties: false

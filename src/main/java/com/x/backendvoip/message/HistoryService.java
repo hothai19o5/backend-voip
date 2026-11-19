@@ -12,7 +12,11 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.InputStream;
 import java.time.Clock;
 import java.util.List;
 import java.util.Map;
@@ -30,9 +34,11 @@ public class HistoryService {
     private final EntityManager entities;
     private final SipAccountRepository sipAccounts;
     private final Clock clock;
+    private final AttachmentStorage storage;
 
     public record CursorPage<T>(List<T> content, String nextCursor) {}
     public record Conversation(String peer, String name, HistoryEntry lastMessage) {}
+    public record AttachmentContent(MessageAttachment.Metadata metadata, InputStream stream) {}
 
     @Transactional
     public HistoryEntry save(UUID ownerId, String id, HistoryWrite input) {
@@ -59,12 +65,30 @@ public class HistoryService {
 
     @Transactional
     public HistoryEntry send(UUID senderId, String requestId, DirectMessageWrite input) {
+        return sendDirect(senderId, requestId, input.peer(), input.body(), null, null);
+    }
+
+    @Transactional
+    public HistoryEntry sendAttachment(UUID senderId, String requestId, String peer, MultipartFile file) {
+        var attachment = MessageAttachment.inspect(file);
+        return sendDirect(senderId, requestId, peer, attachment.getFilename(), attachment, file);
+    }
+
+    public AttachmentContent attachment(UUID ownerId, String messageId) {
+        var attachment = history.findByOwnerIdAndMessageId(ownerId, messageId)
+                .map(HistoryMessage::getAttachment)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "ATTACHMENT_NOT_FOUND", "Attachment not found."));
+        return new AttachmentContent(attachment.metadata(), storage.download(attachment));
+    }
+
+    private HistoryEntry sendDirect(UUID senderId, String requestId, String address, String body,
+                                    MessageAttachment attachment, MultipartFile file) {
         if (!requestId.matches("[A-Za-z0-9_.:-]{1,58}")) throw invalid("Invalid message id.");
-        if (input.body().indexOf(0) >= 0) throw invalid("Invalid message body.");
-        String peer = normalize(input.peer());
+        if (body.indexOf(0) >= 0) throw invalid("Invalid message body.");
+        String peer = normalize(address);
         String id = CHAT_PREFIX + senderId + ":" + requestId;
         var existing = history.findByOwnerIdAndMessageId(senderId, id).orElse(null);
-        if (existing != null) return retryDirect(existing, peer, input.body());
+        if (existing != null) return retryDirect(existing, peer, body, attachment);
 
         int at = peer.lastIndexOf('@');
         var matches = sipAccounts.findFirst2ByDomainNameIgnoreCaseAndExtension(
@@ -84,7 +108,7 @@ public class HistoryService {
         var sender = senderFirst ? first : second;
         var recipient = senderFirst ? second : first;
         existing = history.findByOwnerIdAndMessageId(senderId, id).orElse(null);
-        if (existing != null) return retryDirect(existing, peer, input.body());
+        if (existing != null) return retryDirect(existing, peer, body, attachment);
         if (sender.getStatus() != UserStatus.ACTIVE || recipient.getStatus() != UserStatus.ACTIVE)
             throw unavailable(HttpStatus.FORBIDDEN);
 
@@ -92,18 +116,29 @@ public class HistoryService {
                 .filter(mapping -> mapping.getProvisioningStatus() == ProvisioningStatus.READY)
                 .orElseThrow(() -> unavailable(HttpStatus.CONFLICT));
         String from = normalize(account.getExtension() + "@" + account.getDomainName());
+        if (attachment != null) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCompletion(int status) {
+                    if (status == STATUS_ROLLED_BACK) storage.discard(attachment);
+                }
+            });
+            storage.upload(attachment, file);
+        }
         long time = clock.millis();
         var outgoing = new HistoryWrite(from, peer, recipient.getDisplayName(), "outgoing",
-                input.body(), "accepted", time, null);
+                body, "accepted", time, null);
         var incoming = new HistoryWrite(peer, from, sender.getDisplayName(), "incoming",
-                input.body(), "received", time, sender.getDisplayName());
-        var sent = history.save(new HistoryMessage(sender, id, from, peer, outgoing));
-        history.save(new HistoryMessage(recipient, id, peer, from, incoming));
+                body, "received", time, sender.getDisplayName());
+        var sent = history.save(new HistoryMessage(sender, id, from, peer, outgoing, attachment));
+        history.save(new HistoryMessage(recipient, id, peer, from, incoming, attachment));
         return HistoryEntry.from(sent, recipientId);
     }
 
-    private HistoryEntry retryDirect(HistoryMessage existing, String peer, String body) {
+    private HistoryEntry retryDirect(HistoryMessage existing, String peer, String body, MessageAttachment attachment) {
         if (!existing.getPeer().equals(peer) || !existing.getBody().equals(body)) throw conflict();
+        var stored = existing.getAttachment();
+        if (stored == null ? attachment != null : !stored.matches(attachment)) throw conflict();
         return HistoryEntry.from(existing, peerUserIds(List.of(existing)).get(peer));
     }
 

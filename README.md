@@ -2,6 +2,8 @@
 
 Xem [triển khai Cuộc gọi](docs/PHONE_CALLING.md) để bổ sung số điện thoại và nối FreeSWITCH với OpenVox hoặc Carrier SIP Trunk.
 
+Xem [Ảnh và tệp trong đoạn chat](docs/ATTACHMENTS.md) để chạy kho MinIO bằng Docker.
+
 Spring Boot 4.1.2 / Java 25 / PostgreSQL. First increment: registration, login,
 session revocation, FusionPBX extension provisioning, a searchable user directory
 and persistent web chat and SIP message history.

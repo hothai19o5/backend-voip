@@ -41,8 +41,15 @@ public class HistoryMessage {
     private long time;
     @Column(name = "sender_name", length = 255)
     private String senderName;
+    @Embedded
+    private MessageAttachment attachment;
 
     HistoryMessage(AppUser owner, String id, String account, String peer, HistoryWrite input) {
+        this(owner, id, account, peer, input, null);
+    }
+
+    HistoryMessage(AppUser owner, String id, String account, String peer, HistoryWrite input,
+                   MessageAttachment attachment) {
         this.owner = owner;
         this.messageId = id;
         this.account = account;
@@ -53,6 +60,7 @@ public class HistoryMessage {
         this.status = input.status();
         this.time = input.time();
         this.senderName = input.senderName();
+        this.attachment = attachment;
     }
 
     void finish(String status) {

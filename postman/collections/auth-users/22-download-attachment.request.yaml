@@ -1,0 +1,5 @@
+$kind: http-request
+name: Download Attachment
+method: GET
+url: '{{base_url}}/api/v1/message-history/attachments/{{attachment_message_id}}'
+order: 4920

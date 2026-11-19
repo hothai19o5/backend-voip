@@ -1,0 +1,14 @@
+$kind: http-request
+name: Send Attachment
+method: PUT
+url: '{{base_url}}/api/v1/message-history/attachments/{{attachment_request_id}}'
+order: 4910
+body:
+  type: formdata
+  content:
+    - key: peer
+      type: text
+      value: sip:1002@pbx.test
+    - key: file
+      type: file
+      src: '{{attachment_file}}'

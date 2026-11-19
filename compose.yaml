@@ -12,3 +12,22 @@ services:
     image: 'redis:latest'
     ports:
       - '127.0.0.1:26379:6379'
+
+  minio:
+    profiles: [storage]
+    build: ./deploy/minio
+    image: voip-minio:RELEASE.2025-10-15T17-29-55Z
+    entrypoint: ["/bin/sh", "-ec", ': "$${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}"; exec /usr/local/bin/minio "$$@"', "minio"]
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-voip-local}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-}
+    ports:
+      - '127.0.0.1:29000:9000'
+      - '127.0.0.1:29001:9001'
+    volumes:
+      - minio-data:/data
+    restart: unless-stopped
+
+volumes:
+  minio-data:

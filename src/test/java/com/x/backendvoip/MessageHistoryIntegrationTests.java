@@ -9,16 +9,21 @@ import com.x.backendvoip.user.UserStatus;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.http.HttpMethod;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -91,6 +96,59 @@ class MessageHistoryIntegrationTests {
                 .with(jwt().jwt(j -> j.subject(sender.getId().toString())))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(json.writeValueAsString(Map.of("peer", peer, "body", body))));
+    }
+
+    ResultActions upload(String id, String peer, String filename, byte[] bytes) throws Exception {
+        return mvc.perform(multipart(HttpMethod.PUT, "/api/v1/message-history/attachments/{id}", id)
+                .file(new MockMultipartFile("file", filename, "text/html", bytes))
+                .param("peer", peer)
+                .with(jwt().jwt(j -> j.subject(alice.getId().toString()))));
+    }
+
+    @Test
+    void rejectsEmptyLargeAndExternalAttachmentsWithoutWritingHistory() throws Exception {
+        mapExtensions();
+        upload("empty", "sip:1002@pbx.test", "empty.txt", new byte[0])
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("EMPTY_ATTACHMENT"));
+        upload("large", "sip:1002@pbx.test", "large.bin", new byte[10 * 1024 * 1024 + 1])
+                .andExpect(status().is(413)).andExpect(jsonPath("$.code").value("ATTACHMENT_TOO_LARGE"));
+        upload("external", "sip:1003@pbx.test", "example.txt", new byte[] {1})
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("SIP_ONLY"));
+        assertThat(history.count()).isZero();
+    }
+
+    @Test
+    @EnabledIfEnvironmentVariable(named = "TEST_MINIO", matches = "true")
+    void storesRealMinioObjectsAndOnlyChatParticipantsCanDownload() throws Exception {
+        mapExtensions();
+        String peer = "sip:1002@pbx.test";
+        byte[] bytes = Base64.getDecoder().decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jD/8AAAAASUVORK5CYII=");
+        String filename = "ảnh chia sẻ.png";
+        String id = "chat:" + alice.getId() + ":img";
+        upload("img", peer, "ignored/" + filename, bytes).andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(id))
+                .andExpect(jsonPath("$.attachment.filename").value(filename))
+                .andExpect(jsonPath("$.attachment.contentType").value("image/png"))
+                .andExpect(jsonPath("$.attachment.key").doesNotExist());
+        upload("img", peer, filename, bytes).andExpect(status().isOk());
+        upload("img", peer, filename, new byte[]{42}).andExpect(status().isConflict());
+        send(alice, "img", peer, filename).andExpect(status().isConflict());
+        byte[] file = "Xin chào".getBytes(StandardCharsets.UTF_8);
+        upload("file", peer, "ghi chú.txt", file).andExpect(status().isOk())
+                .andExpect(jsonPath("$.attachment.contentType").value("application/octet-stream"));
+        assertThat(history.count()).isEqualTo(4);
+
+        read(bob, "updates?after=0").andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].attachment.filename").value(filename));
+        read(bob, "attachments/" + id).andExpect(status().isOk())
+                .andExpect(content().contentType("image/png")).andExpect(content().bytes(bytes))
+                .andExpect(header().string("Cache-Control", "no-store"));
+        read(alice, "attachments/chat:" + alice.getId() + ":file")
+                .andExpect(status().isOk()).andExpect(content().bytes(file));
+        mvc.perform(get("/api/v1/message-history/attachments/{id}", id)
+                        .with(jwt().jwt(j -> j.subject(UUID.randomUUID().toString()))))
+                .andExpect(status().isNotFound());
+        mvc.perform(get("/api/v1/message-history/attachments/{id}", id)).andExpect(status().isUnauthorized());
     }
 
     @Test
