@@ -11,7 +11,8 @@ import java.util.UUID;
 @Entity
 @Table(name = "users", uniqueConstraints = {
         @UniqueConstraint(name = "uk_users_username", columnNames = "username"),
-        @UniqueConstraint(name = "uk_users_email", columnNames = "email")
+        @UniqueConstraint(name = "uk_users_email", columnNames = "email"),
+        @UniqueConstraint(name = "uk_users_phone_e164", columnNames = "phone_e164")
 })
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -24,6 +25,9 @@ public class AppUser {
 
     @Column(nullable = false, length = 254)
     private String email;
+
+    @Column(name = "phone_e164", length = 16)
+    private String phoneE164;
 
     @Column(name = "password_hash", nullable = false, length = 255)
     private String passwordHash;
@@ -43,9 +47,14 @@ public class AppUser {
     private Instant createdAt;
 
     public AppUser(String username, String email, String passwordHash, String displayName, Instant now) {
+        this(username, email, passwordHash, displayName, null, now);
+    }
+
+    public AppUser(String username, String email, String passwordHash, String displayName, String phoneE164, Instant now) {
         this.id = UUID.randomUUID();
         this.username = username;
         this.email = email;
+        this.phoneE164 = phoneE164;
         this.passwordHash = passwordHash;
         this.displayName = displayName;
         this.role = UserRole.USER;
@@ -55,5 +64,9 @@ public class AppUser {
 
     public void changeStatus(UserStatus status) {
         this.status = status;
+    }
+
+    public void assignPhone(String phoneE164) {
+        this.phoneE164 = phoneE164;
     }
 }

@@ -14,5 +14,6 @@ body:
       "username": "bob",
       "email": "bob@example.com",
       "password": "example-password",
-      "displayName": "Bob"
+      "displayName": "Bob",
+      "phoneNumber": "+84900000002"
     }

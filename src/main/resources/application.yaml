@@ -45,6 +45,8 @@ management:
       enabled: false
 
 app:
+  phone-calls:
+    enabled: ${PHONE_CALLS_ENABLED:false}
   fusionpbx:
     api-url: ${FUSIONPBX_API_URL:https://10.155.199.136/app/rest_api/rest.php}
     api-token: ${FUSIONPBX_API_TOKEN:}

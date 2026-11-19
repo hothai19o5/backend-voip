@@ -49,7 +49,7 @@ try {
   $server = Start-Backend 'first'
   $processes += $server
   $username = 'hist_http_' + [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-  $registration = @{ username = $username; email = "$username@example.test"; displayName = 'History HTTP'; password = 'verification-password' }
+  $registration = @{ username = $username; email = "$username@example.test"; displayName = 'History HTTP'; password = 'verification-password'; phoneNumber = ('+8490{0:D7}' -f (Get-Random -Maximum 10000000)) }
   $null = Invoke-RestMethod http://127.0.0.1:18083/api/v1/auth/register -Method Post -ContentType application/json -Body ($registration | ConvertTo-Json)
   $loginBody = @{ username = $username; password = 'verification-password' } | ConvertTo-Json
   $session = Invoke-RestMethod http://127.0.0.1:18083/api/v1/auth/login -Method Post -ContentType application/json -Body $loginBody
@@ -60,6 +60,7 @@ try {
   $recipientName = "${username}_b"
   $recipientRegistration = @{
     username = $recipientName; email = "$recipientName@example.test"; displayName = 'Offline Recipient'; password = 'verification-password'
+    phoneNumber = ('+8491{0:D7}' -f (Get-Random -Maximum 10000000))
   } | ConvertTo-Json
   $recipient = Invoke-RestMethod http://127.0.0.1:18083/api/v1/auth/register -Method Post -ContentType application/json -Body $recipientRegistration
   $recipientPeer = "sip:$($recipient.sip.extension)@$($recipient.sip.domain)"

@@ -1,0 +1,12 @@
+<extension name="voip-vn-outbound" continue="false">
+  <condition field="${sip_authorized}" expression="^true$"/>
+  <condition field="${sip_auth_username}" expression="^[0-9]+$"/>
+  <condition field="${sip_acl_authed_by}" expression="^$"/>
+  <condition field="destination_number" expression="^\+84([35789][0-9]{8}|2[0-9]{9})$">
+    <action application="set" data="call_direction=outbound"/>
+    <action application="set" data="hangup_after_bridge=true"/>
+    <action application="set" data="outbound_redirect_fatal=true"/>
+    <!-- Use 0$1 if this gateway expects Vietnamese national format. -->
+    <action application="bridge" data="sofia/gateway/REPLACE_WITH_GATEWAY_ID/+84$1"/>
+  </condition>
+</extension>

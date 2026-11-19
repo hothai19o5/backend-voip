@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomInt } from 'node:crypto';
 
 // Run the real backend against the local simulation, using an isolated dev database.
 const backend = process.argv[2] || 'http://127.0.0.1:18082';
@@ -14,7 +15,11 @@ async function request(base, path, { body, token, method } = {}) {
   });
   return { status: response.status, body: response.status === 204 ? null : await response.json() };
 }
-const registerBody = name => ({ username: name, email: `${name}@example.com`, password: 'simulation-password', displayName: name });
+const fixtureNumbers = new Map();
+const registerBody = name => {
+  if (!fixtureNumbers.has(name)) fixtureNumbers.set(name, `+8490${String(randomInt(10_000_000)).padStart(7, '0')}`);
+  return { username: name, email: `${name}@example.com`, password: 'simulation-password', displayName: name, phoneNumber: fixtureNumbers.get(name) };
+};
 const control = body => request(dependency, '/__control', { body });
 const owner = `sim_owner_${suffix}`;
 const peer = `sim_peer_${suffix}`;

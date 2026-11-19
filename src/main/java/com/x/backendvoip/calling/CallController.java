@@ -10,12 +10,25 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/calls")
 @RequiredArgsConstructor
 public class CallController {
     private final CallService calls;
+    private final PhoneCallService phones;
+
+    @PostMapping("/resolve")
+    public PhoneCallService.Destination resolve(@AuthenticationPrincipal Jwt jwt,
+                                                @Valid @RequestBody PhoneCallService.ResolveRequest request) {
+        return phones.resolve(UUID.fromString(jwt.getSubject()), request);
+    }
+
+    @GetMapping("/dialed")
+    public List<PhoneCallService.Recent> dialed(@AuthenticationPrincipal Jwt jwt) {
+        return phones.recent(UUID.fromString(jwt.getSubject()));
+    }
 
     public record Seen(@NotBlank String through, @Size(max = 320) String peer) {}
 

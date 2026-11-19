@@ -40,6 +40,8 @@ Base URL: `http://localhost:8080`. JSON request/response bodies. OpenAPI source:
 | GET | `/api/v1/message-history/messages?peer=sip:1002@pbx.test&size=50` | 200, cursor page | Bearer |
 | GET | `/api/v1/message-history/updates?after=0` | 200, ascending page of new messages | Bearer |
 | POST | `/api/v1/calls` | 204, call result stored | Bearer |
+| POST | `/api/v1/calls/resolve` | 200, SIP destination for a typed number | Bearer |
+| GET | `/api/v1/calls/dialed` | 200, up to 30 recent dialed calls | Bearer |
 | GET | `/api/v1/calls?missed=false&size=30` | 200, cursor page | Bearer |
 | GET | `/api/v1/calls/threads` | 200, latest call and unseen missed calls per SIP peer | Bearer |
 | GET | `/api/v1/calls/missed` | 200, count and acknowledgment sequence | Bearer |

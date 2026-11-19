@@ -1,0 +1,12 @@
+$kind: http-request
+name: List Dialed Calls
+method: GET
+url: '{{base_url}}/api/v1/calls/dialed'
+order: 5700
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('Current user dialed calls returned', () => {
+        pm.response.to.have.status(200);
+        pm.expect(pm.response.json()).to.be.an('array').with.lengthOf.at.most(30);
+      });

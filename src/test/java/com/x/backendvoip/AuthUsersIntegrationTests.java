@@ -32,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.*;
@@ -70,6 +71,7 @@ class AuthUsersIntegrationTests {
     @Autowired SipAccountRepository sipAccounts;
     @Autowired FusionPbxProperties pbxProperties;
     @Autowired JdbcTemplate jdbc;
+    private final AtomicInteger fixtureNumber = new AtomicInteger();
 
     @BeforeEach
     void resetDatabase() {
@@ -83,11 +85,12 @@ class AuthUsersIntegrationTests {
     @Test
     void registerNormalizesIdentityHashesPasswordAndDoesNotAutoLogin() throws Exception {
         String body = json.writeValueAsString(Map.of("username", " Alice ", "email", " Alice@Example.com ",
-                "password", "  mật-khẩu-🔐  ", "displayName", " Alice Nguyen "));
+                "password", "  mật-khẩu-🔐  ", "displayName", " Alice Nguyen ", "phoneNumber", "090 000 0001"));
         mvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.username").value("alice"))
                 .andExpect(jsonPath("$.email").value("alice@example.com"))
                 .andExpect(jsonPath("$.displayName").value("Alice Nguyen"))
+                .andExpect(jsonPath("$.phoneNumber").value("+84900000001"))
                 .andExpect(jsonPath("$.role").value("USER")).andExpect(jsonPath("$.status").value("ACTIVE"))
                 .andExpect(jsonPath("$.id").isNotEmpty()).andExpect(jsonPath("$.createdAt").isNotEmpty())
                 .andExpect(jsonPath("$.password").doesNotExist()).andExpect(jsonPath("$.passwordHash").doesNotExist())
@@ -116,6 +119,21 @@ class AuthUsersIntegrationTests {
     }
 
     @Test
+    void concurrentlyRegisteringEquivalentPhoneNumbersCreatesOneExtension() throws Exception {
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            Callable<Integer> first = () -> registration("alice", "alice@example.com", "Alice", "090 000 0001")
+                    .andReturn().getResponse().getStatus();
+            Callable<Integer> second = () -> registration("bob", "bob@example.com", "Bob", "+84900000001")
+                    .andReturn().getResponse().getStatus();
+            var result = pool.invokeAll(List.of(first, second));
+            assertThat(List.of(result.get(0).get(), result.get(1).get())).containsExactlyInAnyOrder(201, 409);
+        }
+        registration("carol", "carol@example.com", "Carol", "+84 (90) 000 0001").andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PHONE_ALREADY_IN_USE"));
+        assertThat(pbx.count("extension-create")).isEqualTo(1);
+    }
+
+    @Test
     void invalidRegistrationReturnsFieldErrorsWithoutEchoingSecrets() throws Exception {
         String body = json.writeValueAsString(Map.of("username", "a!", "email", "wrong", "password", "short", "displayName", " "));
         mvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON).content(body))
@@ -123,6 +141,7 @@ class AuthUsersIntegrationTests {
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
                 .andExpect(jsonPath("$.errors.username").exists()).andExpect(jsonPath("$.errors.email").exists())
                 .andExpect(jsonPath("$.errors.password").exists()).andExpect(jsonPath("$.errors.displayName").exists())
+                .andExpect(jsonPath("$.errors.phoneNumber").exists())
                 .andExpect(content().string(not(containsString("short"))));
         assertThat(users.count()).isZero();
     }
@@ -503,8 +522,12 @@ class AuthUsersIntegrationTests {
     }
 
     private ResultActions registration(String username, String email, String displayName) throws Exception {
+        return registration(username, email, displayName, "+8490000%04d".formatted(fixtureNumber.incrementAndGet()));
+    }
+
+    private ResultActions registration(String username, String email, String displayName, String phone) throws Exception {
         return mvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(
-                Map.of("username", username, "email", email, "displayName", displayName, "password", "password-123"))));
+                Map.of("username", username, "email", email, "displayName", displayName, "password", "password-123", "phoneNumber", phone))));
     }
 
     private void register(String username, String email, String displayName) throws Exception {

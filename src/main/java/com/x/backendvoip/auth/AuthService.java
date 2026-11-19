@@ -1,6 +1,7 @@
 package com.x.backendvoip.auth;
 
 import com.x.backendvoip.common.ApiException;
+import com.x.backendvoip.calling.PhoneCallingSettings;
 import com.x.backendvoip.user.*;
 import com.x.backendvoip.sip.SipProvisioningService;
 import org.springframework.http.HttpStatus;
@@ -25,11 +26,12 @@ public class AuthService {
     private final Clock clock;
     private final RegistrationService registrations;
     private final SipProvisioningService sip;
+    private final PhoneCallingSettings phoneCalling;
     private final String dummyPasswordHash;
 
     public AuthService(UserRepository users, AuthSessionRepository sessions, PasswordEncoder passwords,
                        JwtEncoder tokens, AuthProperties properties, Clock clock,
-                       RegistrationService registrations, SipProvisioningService sip) {
+                       RegistrationService registrations, SipProvisioningService sip, PhoneCallingSettings phoneCalling) {
         this.users = users;
         this.sessions = sessions;
         this.passwords = passwords;
@@ -38,6 +40,7 @@ public class AuthService {
         this.clock = clock;
         this.registrations = registrations;
         this.sip = sip;
+        this.phoneCalling = phoneCalling;
         this.dummyPasswordHash = passwords.encode(UUID.randomUUID().toString());
     }
 
@@ -61,7 +64,7 @@ public class AuthService {
                 .issuedAt(now).expiresAt(expiresAt).claim("role", user.getRole().name()).build();
         var header = JwsHeader.with(MacAlgorithm.HS256).build();
         String token = tokens.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();
-        return new LoginResponse(token, "Bearer", expiresAt, UserProfile.from(user, calling));
+        return new LoginResponse(token, "Bearer", expiresAt, UserProfile.from(user, calling, phoneCalling.available()));
     }
 
     @Transactional

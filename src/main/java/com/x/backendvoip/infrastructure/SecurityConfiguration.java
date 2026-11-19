@@ -6,6 +6,7 @@ import com.x.backendvoip.common.ApiErrors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.*;
@@ -94,6 +95,7 @@ public class SecurityConfiguration {
     }
 
     @Bean
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
     SecurityFilterChain apiSecurity(HttpSecurity http, AuthenticationEntryPoint entryPoint,
                                     AccessDeniedHandler deniedHandler) throws Exception {
         var authorities = new JwtGrantedAuthoritiesConverter();

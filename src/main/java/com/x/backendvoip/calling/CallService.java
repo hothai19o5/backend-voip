@@ -24,6 +24,7 @@ import static com.x.backendvoip.calling.CallWrite.Status.*;
 @Transactional(readOnly = true)
 public class CallService {
     private final CallRepository calls;
+    private final PhoneCallService phones;
     private final EntityManager entities;
     private final Clock clock;
 
@@ -49,6 +50,8 @@ public class CallService {
         if (peer.chars().anyMatch(Character::isISOControl) || peer.indexOf('@') != peer.lastIndexOf('@'))
             throw invalid("Invalid SIP address.");
         var owner = lockOwner(ownerId);
+        if (input.dialedPhoneNumber() != null
+                && phones.recordDialed(ownerId, peer, input) == DialedCall.Route.APP_TO_PHONE) return;
         var existing = calls.findByOwnerIdAndDirectionAndCallId(ownerId, input.direction(), input.id()).orElse(null);
         if (existing == null) {
             calls.save(new CallRecord(owner, peer, input));

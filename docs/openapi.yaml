@@ -23,8 +23,63 @@ tags:
   - name: Message history
     description: Stored web chat and the authenticated account's SIP history
   - name: Calls
-    description: Call results observed by the web SIP client
+    description: SIP destination lookup and web-observed call history
 paths:
+  /api/v1/calls/dialed:
+    get:
+      tags: [Calls]
+      summary: List up to 30 finalized calls dialed by the current user
+      operationId: listDialedCalls
+      responses:
+        '200':
+          description: Most recent first. Results are populated when the browser reports the SIP outcome.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DialedCall'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/calls/resolve:
+    post:
+      tags: [Calls]
+      summary: Resolve a phone number into a SIP destination for the current user
+      operationId: resolvePhoneCall
+      description: This lookup does not start a call. The browser uses the returned SIP URI to send the INVITE.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [phoneNumber]
+              properties:
+                phoneNumber: {type: string, minLength: 1, maxLength: 40, example: '090 000 0002'}
+      responses:
+        '200':
+          description: An app SIP extension or a Vietnamese mobile or landline on the caller's SIP domain.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [type, phoneNumber, sipUri, displayName]
+                properties:
+                  type: {type: string, enum: [APP_TO_APP, APP_TO_PHONE]}
+                  phoneNumber: {type: string, example: '+84900000002'}
+                  sipUri: {type: string, example: 'sip:1002@pbx.test'}
+                  displayName: {type: string, nullable: true}
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: PSTN_DESTINATION_DENIED for an unassigned number outside the supported Vietnamese ranges.
+        '409':
+          description: SELF_CALL, APP_DESTINATION_UNAVAILABLE or CALLER_SIP_UNAVAILABLE.
+        '503':
+          description: PHONE_CALLING_DISABLED until configured and all accounts have a phone.
   /api/v1/calls:
     post:
       tags: [Calls]
@@ -34,6 +89,8 @@ paths:
         Retry with the same ID and direction to avoid duplicates. An incoming
         result with stronger evidence can replace an unanswered observation.
         This records a web client observation and does not query PBX CDRs.
+        An outgoing voice result with dialedPhoneNumber also appears in recent
+        dialed calls. Those PSTN results are excluded from chat history.
       requestBody:
         required: true
         content:
@@ -375,6 +432,7 @@ paths:
               email: alice@example.com
               password: example-password
               displayName: Alice
+              phoneNumber: '+84900000001'
       responses:
         '201':
           description: Account created with role USER, status ACTIVE and SIP provisioningStatus READY
@@ -385,7 +443,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
         '409':
-          description: Username/email already exists or extension allocation conflict (USERNAME_TAKEN, EMAIL_TAKEN, ACCOUNT_CONFLICT, EXTENSION_CONFLICT)
+          description: Username, email or phone already exists, or extension allocation conflict.
           content:
             application/problem+json:
               schema:
@@ -612,6 +670,7 @@ components:
           required: [id]
           properties:
             id: { type: string, minLength: 1, maxLength: 255, description: Stable SIP or client call identifier }
+            dialedPhoneNumber: { type: string, maxLength: 40, description: Original number normalized by the lookup for outgoing keypad voice calls }
     CallPage:
       type: object
       required: [content, nextCursor]
@@ -679,7 +738,7 @@ components:
     RegisterRequest:
       type: object
       additionalProperties: false
-      required: [username, email, password, displayName]
+      required: [username, email, password, displayName, phoneNumber]
       properties:
         username:
           type: string
@@ -699,6 +758,11 @@ components:
           type: string
           minLength: 1
           maxLength: 100
+        phoneNumber:
+          type: string
+          minLength: 1
+          maxLength: 40
+          description: Unique after E.164 normalization. Vietnam is the default region for national numbers.
     LoginRequest:
       type: object
       additionalProperties: false
@@ -716,7 +780,7 @@ components:
           writeOnly: true
     UserProfile:
       type: object
-      required: [id, username, email, displayName, role, status, createdAt, sip]
+      required: [id, username, email, displayName, role, status, createdAt, sip, phoneNumber, phoneCallingEnabled]
       properties:
         id:
           type: string
@@ -737,11 +801,29 @@ components:
         createdAt:
           type: string
           format: date-time
+        phoneNumber:
+          type: string
+          nullable: true
+          description: Own E.164 number. Null for legacy accounts pending backfill.
+        phoneCallingEnabled:
+          type: boolean
         sip:
           type: object
           nullable: true
           allOf:
             - $ref: '#/components/schemas/SipSummary'
+    DialedCall:
+      type: object
+      required: [id, phoneNumber, route, name, status, startedAt, answeredAt, endedAt]
+      properties:
+        id: {type: string, format: uuid}
+        phoneNumber: {type: string}
+        route: {type: string, enum: [APP_TO_APP, APP_TO_PHONE]}
+        name: {type: string, nullable: true}
+        status: {type: string, enum: [COMPLETED, DECLINED, CANCELED, BUSY, UNANSWERED, FAILED, INTERRUPTED]}
+        startedAt: {type: integer, format: int64, description: Unix epoch milliseconds}
+        answeredAt: {type: integer, format: int64, nullable: true, description: Unix epoch milliseconds}
+        endedAt: {type: integer, format: int64, description: Unix epoch milliseconds}
     UserSummary:
       type: object
       required: [id, username, displayName, status, sip, online]

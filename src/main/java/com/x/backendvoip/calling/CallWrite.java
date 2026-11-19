@@ -11,7 +11,8 @@ public record CallWrite(
         @NotNull Boolean video,
         @NotNull @Min(1) @Max(MAX_TIME) Long startedAt,
         @Min(1) @Max(MAX_TIME) Long answeredAt,
-        @NotNull @Min(1) @Max(MAX_TIME) Long endedAt
+        @NotNull @Min(1) @Max(MAX_TIME) Long endedAt,
+        @Size(max = 40) String dialedPhoneNumber
 ) {
     static final long MAX_TIME = 8640000000000000L;
 

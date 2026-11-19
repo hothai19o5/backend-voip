@@ -2,6 +2,7 @@ package com.x.backendvoip.user;
 
 import com.x.backendvoip.common.ApiException;
 import com.x.backendvoip.common.PageResponse;
+import com.x.backendvoip.calling.PhoneCallingSettings;
 import com.x.backendvoip.presence.PresenceService;
 import com.x.backendvoip.sip.SipProvisioningService;
 import lombok.RequiredArgsConstructor;
@@ -22,11 +23,12 @@ public class UserService {
     private final UserRepository users;
     private final SipProvisioningService sip;
     private final PresenceService presence;
+    private final PhoneCallingSettings phoneCalling;
 
     public UserProfile me(UUID userId) {
         var user = users.findById(userId).orElseThrow(() ->
                 new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Authentication is required."));
-        return UserProfile.from(user, sip.summary(userId));
+        return UserProfile.from(user, sip.summary(userId), phoneCalling.available());
     }
 
     public PageResponse<UserSummary> list(UUID callerId, String query, int page, int size) {

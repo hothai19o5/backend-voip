@@ -1,0 +1,20 @@
+$kind: http-request
+name: Resolve Phone Call
+method: POST
+url: '{{base_url}}/api/v1/calls/resolve'
+order: 5800
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {"phoneNumber": "028 3822 3456"}
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('SIP destination returned', () => {
+        pm.response.to.have.status(200);
+        const destination = pm.response.json();
+        pm.expect(['APP_TO_APP', 'APP_TO_PHONE']).to.include(destination.type);
+        pm.expect(destination.sipUri).to.match(/^sip:[^@]+@[^@]+$/);
+      });
