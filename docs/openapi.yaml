@@ -529,6 +529,39 @@ paths:
           $ref: '#/components/responses/TelephonyFailure'
         '504':
           $ref: '#/components/responses/TelephonyFailure'
+  /api/v1/users/contact-phone:
+    get:
+      tags: [Users]
+      operationId: getContactPhone
+      summary: Get the registered phone number for a chat contact
+      description: >-
+        Uses the local SIP mapping for the selected contact. Returns null for
+        external, blocked, or unmapped contacts and for accounts without a number.
+      parameters:
+        - name: peer
+          in: query
+          required: true
+          schema:
+            type: string
+            maxLength: 320
+            example: 'sip:1002@pbx.test'
+      responses:
+        '200':
+          description: Contact phone number in E.164 or null
+          headers:
+            Cache-Control:
+              schema: {type: string, example: no-store}
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [phoneNumber]
+                properties:
+                  phoneNumber: {type: string, nullable: true, example: '+84900000002'}
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /api/v1/users:
     get:
       tags: [Users]

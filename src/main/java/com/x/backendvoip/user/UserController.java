@@ -2,6 +2,8 @@ package com.x.backendvoip.user;
 
 import com.x.backendvoip.common.PageResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
@@ -13,6 +15,14 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class UserController {
     private final UserService users;
+
+    public record ContactPhone(String phoneNumber) {}
+
+    @GetMapping("/contact-phone")
+    public ResponseEntity<ContactPhone> contactPhone(@RequestParam String peer) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(new ContactPhone(users.contactPhone(peer)));
+    }
 
     @GetMapping("/me")
     public UserProfile me(@AuthenticationPrincipal Jwt jwt) {

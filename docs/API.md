@@ -31,6 +31,7 @@ Base URL: `http://localhost:8080`. JSON request/response bodies. OpenAPI source:
 | POST | `/api/v1/auth/login` | 200, token and own user profile | Public |
 | POST | `/api/v1/auth/logout` | 204, empty body | Bearer |
 | GET | `/api/v1/users/me` | 200, own user profile | Bearer |
+| GET | `/api/v1/users/contact-phone?peer=sip%3A1002%40pbx.test` | 200, registered number for the selected contact or null | Bearer |
 | GET | `/api/v1/users?page=0&size=20&q=alice` | 200, page | Bearer |
 | POST | `/api/v1/presence/heartbeat` | 200, online user IDs | Bearer |
 | GET | `/api/v1/sip/account` | 200, own SIP connection credentials | Bearer |

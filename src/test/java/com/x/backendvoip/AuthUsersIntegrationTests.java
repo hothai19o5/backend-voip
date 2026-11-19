@@ -202,7 +202,7 @@ class AuthUsersIntegrationTests {
 
     @Test
     void protectedEndpointsRequireBearerAuthentication() throws Exception {
-        for (String path : List.of("/api/v1/users", "/api/v1/users/me")) {
+        for (String path : List.of("/api/v1/users", "/api/v1/users/me", "/api/v1/users/contact-phone")) {
             mvc.perform(get(path)).andExpect(status().isUnauthorized())
                     .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                     .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
@@ -211,6 +211,31 @@ class AuthUsersIntegrationTests {
         mvc.perform(post("/api/v1/auth/logout")).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/v1/users").header("Authorization", "Basic YWxpY2U6cGFzc3dvcmQ="))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void contactPhoneUsesLocalMappingAndHidesNumbersForUnavailableContacts() throws Exception {
+        var registration = registration("alice", "alice@example.com", "Alice", "090 000 0001")
+                .andExpect(status().isCreated()).andReturn();
+        registration("bob", "bob@example.com", "Bob", "090 000 0002")
+                .andExpect(status().isCreated());
+        var sip = json.readTree(registration.getResponse().getContentAsString()).path("sip");
+        String peer = "sip:" + sip.path("extension").asString() + "@" + sip.path("domain").asString();
+        String auth = bearer(token("bob"));
+        String path = "/api/v1/users/contact-phone";
+        int pbxReads = pbx.count("extension-list");
+        mvc.perform(get(path).param("peer", peer).header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", containsString("no-store")))
+                .andExpect(jsonPath("$.phoneNumber").value("+84900000001"));
+        mvc.perform(get(path).param("peer", "sip:1234@external.test").header("Authorization", auth))
+                .andExpect(status().isOk()).andExpect(content().json("{\"phoneNumber\":null}"));
+        mvc.perform(get(path).param("peer", "invalid").header("Authorization", auth))
+                .andExpect(status().isBadRequest());
+        blockAlice();
+        mvc.perform(get(path).param("peer", peer).header("Authorization", auth))
+                .andExpect(status().isOk()).andExpect(content().json("{\"phoneNumber\":null}"));
+        assertThat(pbx.count("extension-list")).isEqualTo(pbxReads);
     }
 
     @Test

@@ -4,6 +4,9 @@ import com.x.backendvoip.common.ApiException;
 import com.x.backendvoip.common.PageResponse;
 import com.x.backendvoip.calling.PhoneCallingSettings;
 import com.x.backendvoip.presence.PresenceService;
+import com.x.backendvoip.sip.ProvisioningStatus;
+import com.x.backendvoip.sip.SipAccountRepository;
+import com.x.backendvoip.sip.SipAddress;
 import com.x.backendvoip.sip.SipProvisioningService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -22,6 +25,7 @@ import java.util.UUID;
 public class UserService {
     private final UserRepository users;
     private final SipProvisioningService sip;
+    private final SipAccountRepository sipAccounts;
     private final PresenceService presence;
     private final PhoneCallingSettings phoneCalling;
 
@@ -29,6 +33,17 @@ public class UserService {
         var user = users.findById(userId).orElseThrow(() ->
                 new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Authentication is required."));
         return UserProfile.from(user, sip.summary(userId), phoneCalling.available());
+    }
+
+    public String contactPhone(String address) {
+        String peer = SipAddress.normalize(address);
+        int at = peer.lastIndexOf('@');
+        var matches = sipAccounts.findFirst2ByDomainNameIgnoreCaseAndExtension(
+                peer.substring(at + 1), peer.substring("sip:".length(), at));
+        if (matches.size() != 1 || matches.getFirst().getProvisioningStatus() != ProvisioningStatus.READY)
+            return null;
+        var user = matches.getFirst().getUser();
+        return user.getStatus() == UserStatus.ACTIVE ? user.getPhoneE164() : null;
     }
 
     public PageResponse<UserSummary> list(UUID callerId, String query, int page, int size) {
