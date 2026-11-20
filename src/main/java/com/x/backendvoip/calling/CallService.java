@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -30,11 +31,11 @@ public class CallService {
 
     public record Entry(String id, String sequence, String peer, String name, CallWrite.Direction direction,
                         CallWrite.Status status, boolean video, long startedAt, Long answeredAt, long endedAt,
-                        boolean unread) {
+                        boolean unread, String pstnPhoneNumber) {
         static Entry from(CallRecord call) {
             return new Entry(call.getCallId(), call.getSequence().toString(), call.getPeer(), call.getName(), call.getDirection(),
                     call.getStatus(), call.isVideo(), call.getStartedAt(), call.getAnsweredAt(), call.getEndedAt(),
-                    call.getStatus() == MISSED && call.getSeenAt() == null);
+                    call.getStatus() == MISSED && call.getSeenAt() == null, call.getPstnPhoneNumber());
         }
     }
 
@@ -50,13 +51,18 @@ public class CallService {
         if (peer.chars().anyMatch(Character::isISOControl) || peer.indexOf('@') != peer.lastIndexOf('@'))
             throw invalid("Invalid SIP address.");
         var owner = lockOwner(ownerId);
-        if (input.dialedPhoneNumber() != null
-                && phones.recordDialed(ownerId, peer, input) == DialedCall.Route.APP_TO_PHONE) return;
+        String pstnPhoneNumber = null;
+        if (input.dialedPhoneNumber() != null) {
+            var destination = phones.recordDialed(ownerId, peer, input);
+            if (destination == null) return;
+            peer = destination.peer();
+            pstnPhoneNumber = destination.pstnPhoneNumber();
+        }
         var existing = calls.findByOwnerIdAndDirectionAndCallId(ownerId, input.direction(), input.id()).orElse(null);
         if (existing == null) {
-            calls.save(new CallRecord(owner, peer, input));
+            calls.save(new CallRecord(owner, peer, input, pstnPhoneNumber));
         } else {
-            if (!existing.getPeer().equals(peer))
+            if (!existing.getPeer().equals(peer) || !Objects.equals(existing.getPstnPhoneNumber(), pstnPhoneNumber))
                 throw new ApiException(HttpStatus.CONFLICT, "CALL_CONFLICT", "This call id belongs to another peer.");
             existing.merge(input);
         }

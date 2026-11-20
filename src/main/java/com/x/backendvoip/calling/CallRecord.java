@@ -30,6 +30,8 @@ public class CallRecord {
     private String peer;
     @Column(length = 255)
     private String name;
+    @Column(name = "pstn_phone_number", length = 16)
+    private String pstnPhoneNumber;
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 24)
     private CallWrite.Status status;
@@ -42,11 +44,12 @@ public class CallRecord {
     private long endedAt;
     private Long seenAt;
 
-    CallRecord(AppUser owner, String peer, CallWrite input) {
+    CallRecord(AppUser owner, String peer, CallWrite input, String pstnPhoneNumber) {
         this.owner = owner;
         this.callId = input.id();
         this.direction = input.direction();
         this.peer = peer;
+        this.pstnPhoneNumber = pstnPhoneNumber;
         apply(input);
     }
 

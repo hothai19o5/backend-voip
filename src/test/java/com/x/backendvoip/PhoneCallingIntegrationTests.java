@@ -18,6 +18,7 @@ import org.springframework.test.web.servlet.ResultActions;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -33,6 +34,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("test")
 class PhoneCallingIntegrationTests {
     private static final String DOMAIN = "pbx.example.test";
+    private static final String CALLS = "/api/v1/calls";
     private static final String RESOLVE = "/api/v1/calls/resolve";
     private static final String DIAL_HISTORY = "/api/v1/calls/dialed";
     private static final UUID PBX_DOMAIN = UUID.randomUUID();
@@ -108,7 +110,7 @@ class PhoneCallingIntegrationTests {
     }
 
     @Test
-    void storesPstnResultPrivatelyAndIdempotentlyOutsideChat() throws Exception {
+    void keepsAnUnassignedPstnResultInRecentCallsEvenIfTheNumberIsAssignedLater() throws Exception {
         String peer = "sip:+842838223456@" + DOMAIN;
         save("pstn-sip-id", peer, "+842838223456").andExpect(status().isNoContent());
         save("pstn-sip-id", peer, "+842838223456").andExpect(status().isNoContent());
@@ -118,7 +120,39 @@ class PhoneCallingIntegrationTests {
                 .andExpect(jsonPath("$[0].route").value("APP_TO_PHONE"));
         mvc.perform(get(DIAL_HISTORY).with(jwt().jwt(j -> j.subject(bob.getId().toString()))))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
-        mvc.perform(get("/api/v1/calls/threads").with(jwt().jwt(j -> j.subject(alice.getId().toString()))))
+        user("new-contact", "+842838223456", "1003");
+        save("pstn-sip-id", peer, "+842838223456").andExpect(status().isNoContent());
+        mvc.perform(get(CALLS + "/threads").with(jwt().jwt(j -> j.subject(alice.getId().toString()))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.content.length()").value(0));
+    }
+
+    @Test
+    void storesCompletedAndDeclinedPstnCallsInTheCallersContactThread() throws Exception {
+        String number = "+84900000002";
+        String pstnPeer = "sip:" + number + "@" + DOMAIN;
+        String chatPeer = "sip:1002@" + DOMAIN;
+        long now = System.currentTimeMillis();
+        for (int retry = 0; retry < 2; retry++) {
+            save("completed-pstn", pstnPeer, number, "COMPLETED", now - 2000, now - 2500)
+                    .andExpect(status().isNoContent());
+            save("declined-pstn", pstnPeer, number, "DECLINED", now, null)
+                    .andExpect(status().isNoContent());
+        }
+        mvc.perform(get(CALLS).param("peer", chatPeer).with(jwt().jwt(j -> j.subject(alice.getId().toString()))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.content[0].id").value("declined-pstn"))
+                .andExpect(jsonPath("$.content[0].status").value("DECLINED"))
+                .andExpect(jsonPath("$.content[0].pstnPhoneNumber").value(number))
+                .andExpect(jsonPath("$.content[1].status").value("COMPLETED"))
+                .andExpect(jsonPath("$.content[1].answeredAt").value(now - 2500));
+        mvc.perform(get(CALLS + "/threads").with(jwt().jwt(j -> j.subject(alice.getId().toString()))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].lastCall.peer").value(chatPeer))
+                .andExpect(jsonPath("$.content[0].missed.unread").value(0));
+        mvc.perform(get(DIAL_HISTORY).with(jwt().jwt(j -> j.subject(alice.getId().toString()))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].route").value("APP_TO_PHONE"));
+        mvc.perform(get(CALLS + "/threads").with(jwt().jwt(j -> j.subject(bob.getId().toString()))))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.content.length()").value(0));
     }
 
@@ -130,7 +164,7 @@ class PhoneCallingIntegrationTests {
         mvc.perform(get(DIAL_HISTORY).with(jwt().jwt(j -> j.subject(alice.getId().toString()))))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].route").value("APP_TO_APP"));
-        mvc.perform(get("/api/v1/calls").param("peer", peer)
+        mvc.perform(get(CALLS).param("peer", peer)
                         .with(jwt().jwt(j -> j.subject(alice.getId().toString()))))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.content.length()").value(1))
                 .andExpect(jsonPath("$.content[0].status").value("BUSY"));
@@ -156,10 +190,15 @@ class PhoneCallingIntegrationTests {
     }
 
     private ResultActions save(String id, String peer, String phone) throws Exception {
-        long now = System.currentTimeMillis();
-        var body = Map.of("id", id, "peer", peer, "dialedPhoneNumber", phone, "video", false,
-                "direction", "OUTGOING", "status", "BUSY", "startedAt", now - 1000, "endedAt", now);
-        return mvc.perform(post("/api/v1/calls").with(jwt().jwt(j -> j.subject(alice.getId().toString())))
+        return save(id, peer, phone, "BUSY", System.currentTimeMillis(), null);
+    }
+
+    private ResultActions save(String id, String peer, String phone, String status, long endedAt, Long answeredAt)
+            throws Exception {
+        Map<String, Object> body = new HashMap<>(Map.of("id", id, "peer", peer, "dialedPhoneNumber", phone, "video", false,
+                "direction", "OUTGOING", "status", status, "startedAt", endedAt - 1000, "endedAt", endedAt));
+        if (answeredAt != null) body.put("answeredAt", answeredAt);
+        return mvc.perform(post(CALLS).with(jwt().jwt(j -> j.subject(alice.getId().toString())))
                 .contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(body)));
     }
 }

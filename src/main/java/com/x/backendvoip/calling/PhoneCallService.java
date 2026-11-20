@@ -3,6 +3,7 @@ package com.x.backendvoip.calling;
 import com.x.backendvoip.common.ApiException;
 import com.x.backendvoip.sip.ProvisioningStatus;
 import com.x.backendvoip.sip.SipAccountRepository;
+import com.x.backendvoip.sip.SipAddress;
 import com.x.backendvoip.user.PhoneNumbers;
 import com.x.backendvoip.user.UserRepository;
 import com.x.backendvoip.user.UserStatus;
@@ -29,6 +30,8 @@ public class PhoneCallService {
     public record ResolveRequest(@NotBlank @Size(max = 40) String phoneNumber, Boolean forcePstn) {}
 
     public record Destination(String type, String phoneNumber, String sipUri, String displayName) {}
+
+    record ChatDestination(String peer, String pstnPhoneNumber) {}
 
     public record Recent(UUID id, String phoneNumber, String route, String name, CallWrite.Status status,
                          long startedAt, Long answeredAt, long endedAt) {
@@ -69,7 +72,7 @@ public class PhoneCallService {
     }
 
     @Transactional
-    DialedCall.Route recordDialed(UUID owner, String peer, CallWrite input) {
+    ChatDestination recordDialed(UUID owner, String peer, CallWrite input) {
         var phone = PhoneNumbers.parse(input.dialedPhoneNumber());
         String sipUser = peer.substring(4, peer.indexOf('@'));
         boolean pstn = sipUser.equals(phone.e164());
@@ -86,6 +89,17 @@ public class PhoneCallService {
         } else if (!peer.equals(existing.getSipPeer()) || !phone.e164().equals(existing.getPhoneE164()) || route != existing.getRoute()) {
             throw new ApiException(HttpStatus.CONFLICT, "CALL_CONFLICT", "This call id belongs to another dialed destination.");
         }
-        return route;
+        if (!pstn) return new ChatDestination(peer, null);
+
+        // The dialed row and its chat entry are written in the same transaction.
+        // A retry must not link a past call to a contact that acquired the number later.
+        if (existing != null) return null;
+        return users.findByPhoneE164(phone.e164())
+                .filter(user -> !user.getId().equals(owner) && user.getStatus() == UserStatus.ACTIVE)
+                .flatMap(user -> sipAccounts.findByUserId(user.getId()))
+                .filter(account -> account.getProvisioningStatus() == ProvisioningStatus.READY)
+                .map(account -> new ChatDestination(
+                        SipAddress.normalize(account.getExtension() + "@" + account.getDomainName()), phone.e164()))
+                .orElse(null);
     }
 }

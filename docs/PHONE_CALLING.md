@@ -2,7 +2,7 @@
 
 Khi quay số, React gọi `POST /api/v1/calls/resolve` bằng Bearer token. Spring Boot chuẩn hóa số và tra DB, rồi trả `sip:<máy-nhánh>@<domain>` cho số thuộc người dùng hoặc `sip:+84…@<domain>` cho số di động hoặc cố định Việt Nam chưa gán. SIP.js gửi INVITE thẳng tới URI nhận được qua WSS. Khi chọn người từ danh bạ, React gọi SIP máy nhánh như trước. Xem [bản thiết kế](../../docs/app-to-phone-design.md) và [OpenAPI](openapi.yaml).
 
-Nút **Gọi qua số điện thoại** trong đoạn chat gửi `forcePstn: true` để gọi qua gateway, kể cả khi số đã gắn với một tài khoản VoIP. Nút có thể dùng khi liên hệ có số và tính năng quay số đã bật. Kết quả xuất hiện trong **Gần đây**, nơi **Gọi lại** dùng lại tuyến mạng điện thoại cho các cuộc gọi qua gateway.
+Nút **Gọi qua số điện thoại** trong đoạn chat gửi `forcePstn: true` để gọi qua gateway, kể cả khi số đã gắn với một tài khoản VoIP. Nút có thể dùng khi liên hệ có số và tính năng quay số đã bật. **Gọi lại** trên thẻ cuộc gọi hoặc trong **Gần đây** dùng lại tuyến mạng điện thoại cho cuộc gọi qua gateway.
 
 ## Bổ sung số cho tài khoản hiện có
 
@@ -31,9 +31,9 @@ Tài khoản cũ giữ ID và máy nhánh. Số tự khai áp dụng cho bản d
 
 ## Lịch sử và kiểm thử
 
-Trình duyệt lưu kết quả SIP cùng số đã quay qua `POST /api/v1/calls`. Cuộc gọi theo máy nhánh xuất hiện trong đoạn chat và **Gần đây**. Cuộc PSTN do web thực hiện xuất hiện trong **Gần đây**. Các ca đóng tab trước khi trình duyệt báo kết quả cần đối chiếu CDR trên PBX.
+Trình duyệt lưu kết quả SIP cùng số đã quay qua `POST /api/v1/calls`. Cuộc gọi tới số của liên hệ VoIP hiện trong **Gần đây** và trong đoạn chat của người gọi sau khi lưu. Cuộc gọi tới số chưa gắn với liên hệ và các bản ghi PSTN đã lưu trước khi có liên kết với đoạn chat vẫn hiện trong **Gần đây**. Các ca đóng tab trước khi trình duyệt báo kết quả cần đối chiếu CDR trên PBX.
 
 - Dùng hai số tài khoản đã biết để thử định tuyến app-to-app, kể cả lúc máy đích offline hoặc bận. Kiểm tra số leg qua OpenVox bằng 0 trong các ca này.
 - Dùng số Việt Nam chưa gán do người kiểm thử kiểm soát để thử đổ chuông, thoại hai chiều, hủy và kết thúc. Kiểm tra Caller ID thực tế theo SIM hoặc carrier.
-- Sau khi kết thúc, xác nhận **Gần đây** hiển thị một bản ghi và tuyến PSTN nằm ngoài danh sách đoạn chat. Bấm **Gọi lại** để xác minh backend tra lại mapping.
+- Với số đã gắn cho liên hệ, kiểm tra thẻ cuộc gọi trong đoạn chat sau khi kết thúc hoặc bị từ chối. Bấm **Gọi lại** để xác minh cuộc gọi tiếp tục đi qua gateway.
 - Dùng **Resolve Phone Call** và **List Dialed Calls** trong collection [Auth and Users](../postman/collections/auth-users/) với Bearer token của người gọi.

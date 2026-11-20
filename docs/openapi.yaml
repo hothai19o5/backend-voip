@@ -95,7 +95,8 @@ paths:
         result with stronger evidence can replace an unanswered observation.
         This records a web client observation and does not query PBX CDRs.
         An outgoing voice result with dialedPhoneNumber also appears in recent
-        dialed calls. Those PSTN results are excluded from chat history.
+        dialed calls. If a PSTN number belongs to an active app contact with
+        a ready SIP account, the caller can also see the result in that chat.
       requestBody:
         required: true
         content:
@@ -774,12 +775,14 @@ components:
         nextCursor: { type: string, nullable: true, example: '1794934800000:42' }
     CallEntry:
       allOf:
-        - $ref: '#/components/schemas/CallWrite'
+        - $ref: '#/components/schemas/CallDetails'
         - type: object
-          required: [sequence, unread]
+          required: [id, sequence, unread]
           properties:
+            id: { type: string, minLength: 1, maxLength: 255, description: Stable SIP or client call identifier }
             sequence: { type: string, example: '42' }
             unread: { type: boolean, description: True for an unseen missed call }
+            pstnPhoneNumber: { type: string, nullable: true, maxLength: 16, description: Number dialed through the phone network for a call linked to this chat }
     CallThreadPage:
       type: object
       required: [content, nextCursor]
