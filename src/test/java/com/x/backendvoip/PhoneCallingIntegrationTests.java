@@ -72,6 +72,26 @@ class PhoneCallingIntegrationTests {
     }
 
     @Test
+    void explicitlyRoutesAMatchedNumberThroughThePhoneNetwork() throws Exception {
+        resolve(Map.of("phoneNumber", "090 000 0002", "forcePstn", true))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("APP_TO_PHONE"))
+                .andExpect(jsonPath("$.sipUri").value("sip:+84900000002@" + DOMAIN))
+                .andExpect(jsonPath("$.displayName").value("bob"));
+        resolve(Map.of("phoneNumber", "+84900000001", "forcePstn", true))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("SELF_CALL"));
+        user("external", "+14155552671", "1003");
+        resolve(Map.of("phoneNumber", "+14155552671", "forcePstn", true))
+                .andExpect(status().isForbidden());
+        bob.changeStatus(UserStatus.BLOCKED);
+        users.saveAndFlush(bob);
+        resolve(Map.of("phoneNumber", "+84900000002", "forcePstn", true))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("APP_DESTINATION_UNAVAILABLE"));
+    }
+
+    @Test
     void resolvesUnassignedVietnamNumberAndProtectsTheLookup() throws Exception {
         resolve("(028) 3822 3456").andExpect(status().isOk())
                 .andExpect(jsonPath("$.type").value("APP_TO_PHONE"))
@@ -127,8 +147,12 @@ class PhoneCallingIntegrationTests {
     }
 
     private ResultActions resolve(String number) throws Exception {
+        return resolve(Map.of("phoneNumber", number));
+    }
+
+    private ResultActions resolve(Map<String, ?> body) throws Exception {
         return mvc.perform(post(RESOLVE).with(jwt().jwt(j -> j.subject(alice.getId().toString())))
-                .contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(Map.of("phoneNumber", number))));
+                .contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(body)));
     }
 
     private ResultActions save(String id, String peer, String phone) throws Exception {

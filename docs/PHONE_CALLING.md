@@ -2,6 +2,8 @@
 
 Khi quay số, React gọi `POST /api/v1/calls/resolve` bằng Bearer token. Spring Boot chuẩn hóa số và tra DB, rồi trả `sip:<máy-nhánh>@<domain>` cho số thuộc người dùng hoặc `sip:+84…@<domain>` cho số di động hoặc cố định Việt Nam chưa gán. SIP.js gửi INVITE thẳng tới URI nhận được qua WSS. Khi chọn người từ danh bạ, React gọi SIP máy nhánh như trước. Xem [bản thiết kế](../../docs/app-to-phone-design.md) và [OpenAPI](openapi.yaml).
 
+Nút **Gọi qua số điện thoại** trong đoạn chat gửi `forcePstn: true` để gọi qua gateway, kể cả khi số đã gắn với một tài khoản VoIP. Nút có thể dùng khi liên hệ có số và tính năng quay số đã bật. Kết quả xuất hiện trong **Gần đây**, nơi **Gọi lại** dùng lại tuyến mạng điện thoại cho các cuộc gọi qua gateway.
+
 ## Bổ sung số cho tài khoản hiện có
 
 1. Triển khai backend với `PHONE_CALLS_ENABLED=false`. Khi khởi động, Hibernate thêm cột `users.phone_e164` nullable và ràng buộc duy nhất. Đăng ký mới bắt buộc có `phoneNumber` ngay từ phiên bản này.

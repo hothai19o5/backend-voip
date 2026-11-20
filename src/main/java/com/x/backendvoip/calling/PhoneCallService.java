@@ -26,7 +26,7 @@ public class PhoneCallService {
     private final SipAccountRepository sipAccounts;
     private final DialedCallRepository dialedCalls;
 
-    public record ResolveRequest(@NotBlank @Size(max = 40) String phoneNumber) {}
+    public record ResolveRequest(@NotBlank @Size(max = 40) String phoneNumber, Boolean forcePstn) {}
 
     public record Destination(String type, String phoneNumber, String sipUri, String displayName) {}
 
@@ -46,17 +46,22 @@ public class PhoneCallService {
         if (recipient != null) {
             if (recipient.getId().equals(callerId))
                 throw new ApiException(HttpStatus.CONFLICT, "SELF_CALL", "You cannot dial your own number.");
-            var account = sipAccounts.findByUserId(recipient.getId()).orElse(null);
-            if (recipient.getStatus() != UserStatus.ACTIVE || account == null || account.getProvisioningStatus() != ProvisioningStatus.READY)
+            if (recipient.getStatus() != UserStatus.ACTIVE)
                 throw new ApiException(HttpStatus.CONFLICT, "APP_DESTINATION_UNAVAILABLE", "The app destination is unavailable.");
-            return new Destination("APP_TO_APP", phone.e164(), "sip:" + account.getExtension() + "@" + account.getDomainName(),
-                    recipient.getDisplayName());
+            if (!Boolean.TRUE.equals(request.forcePstn())) {
+                var account = sipAccounts.findByUserId(recipient.getId())
+                        .filter(sip -> sip.getProvisioningStatus() == ProvisioningStatus.READY)
+                        .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT, "APP_DESTINATION_UNAVAILABLE", "The app destination is unavailable."));
+                return new Destination("APP_TO_APP", phone.e164(), "sip:" + account.getExtension() + "@" + account.getDomainName(),
+                        recipient.getDisplayName());
+            }
         }
         if (!phone.vietnamLandlineOrMobile())
             throw new ApiException(HttpStatus.FORBIDDEN, "PSTN_DESTINATION_DENIED", "Only Vietnamese mobile and landline PSTN numbers are supported.");
         var caller = sipAccounts.findByUserId(callerId).filter(account -> account.getProvisioningStatus() == ProvisioningStatus.READY)
                 .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT, "CALLER_SIP_UNAVAILABLE", "The caller SIP account is unavailable."));
-        return new Destination("APP_TO_PHONE", phone.e164(), "sip:" + phone.e164() + "@" + caller.getDomainName(), null);
+        return new Destination("APP_TO_PHONE", phone.e164(), "sip:" + phone.e164() + "@" + caller.getDomainName(),
+                recipient == null ? null : recipient.getDisplayName());
     }
 
     public List<Recent> recent(UUID owner) {

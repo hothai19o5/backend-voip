@@ -8,13 +8,14 @@ headers:
 body:
   type: json
   content: |-
-    {"phoneNumber": "028 3822 3456"}
+    {"phoneNumber": "028 3822 3456", "forcePstn": true}
 scripts:
   - type: afterResponse
     code: |-
-      pm.test('SIP destination returned', () => {
+      pm.test('Explicit phone-network destination returned', () => {
         pm.response.to.have.status(200);
         const destination = pm.response.json();
-        pm.expect(['APP_TO_APP', 'APP_TO_PHONE']).to.include(destination.type);
-        pm.expect(destination.sipUri).to.match(/^sip:[^@]+@[^@]+$/);
+        pm.expect(destination.type).to.eql('APP_TO_PHONE');
+        pm.expect(destination.phoneNumber).to.eql('+842838223456');
+        pm.expect(destination.sipUri).to.match(/^sip:\+842838223456@[^@]+$/);
       });

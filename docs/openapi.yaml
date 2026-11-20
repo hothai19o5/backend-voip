@@ -46,7 +46,11 @@ paths:
       tags: [Calls]
       summary: Resolve a phone number into a SIP destination for the current user
       operationId: resolvePhoneCall
-      description: This lookup does not start a call. The browser uses the returned SIP URI to send the INVITE.
+      description: >-
+        The browser uses the returned SIP URI to send the INVITE. By default,
+        a number assigned to an active app account resolves to its extension.
+        Set forcePstn to route a supported Vietnamese phone number through the
+        caller's outbound gateway even when the number belongs to an app account.
       requestBody:
         required: true
         content:
@@ -57,6 +61,7 @@ paths:
               required: [phoneNumber]
               properties:
                 phoneNumber: {type: string, minLength: 1, maxLength: 40, example: '090 000 0002'}
+                forcePstn: {type: boolean, default: false}
       responses:
         '200':
           description: An app SIP extension or a Vietnamese mobile or landline on the caller's SIP domain.
@@ -75,7 +80,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
-          description: PSTN_DESTINATION_DENIED for an unassigned number outside the supported Vietnamese ranges.
+          description: PSTN_DESTINATION_DENIED when the requested PSTN destination is outside the supported Vietnamese ranges.
         '409':
           description: SELF_CALL, APP_DESTINATION_UNAVAILABLE or CALLER_SIP_UNAVAILABLE.
         '503':
@@ -757,7 +762,7 @@ components:
           required: [id]
           properties:
             id: { type: string, minLength: 1, maxLength: 255, description: Stable SIP or client call identifier }
-            dialedPhoneNumber: { type: string, maxLength: 40, description: Original number normalized by the lookup for outgoing keypad voice calls }
+            dialedPhoneNumber: { type: string, maxLength: 40, description: Original number normalized by the lookup for outgoing voice calls placed by number }
     CallPage:
       type: object
       required: [content, nextCursor]
